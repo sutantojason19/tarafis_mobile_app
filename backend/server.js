@@ -12,5 +12,8 @@ app.use(express.json());
 app.use('/api/users', userRoutes);
 
 const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0'; // important: allows external access (not just localhost)
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, HOST, () => {
+  console.log(`✅ Server running on http://${HOST}:${PORT}`);
+});

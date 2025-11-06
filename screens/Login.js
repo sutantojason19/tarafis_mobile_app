@@ -10,13 +10,15 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import {API_URL} from '@env'
+
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const onLogin = async () => {
   try {
-    const response = await fetch('http://192.168.1.27:3000/api/users/login', {
+    const response = await fetch('http://192.168.1.36:3000/api/users/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -25,7 +27,7 @@ export default function Login({ navigation }) {
     const data = await response.json();
     if (response.ok) {
       alert('Welcome ' + data.user.name);
-      navigation.replace('Menu');
+      navigation.replace('MainApp', { screen: 'Menu' });
     } else {
       alert(data.message);
     }

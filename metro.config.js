@@ -1,4 +1,6 @@
 // metro.config.js
+process.env.EXPO_USE_BABELRC = 'true';
+
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);

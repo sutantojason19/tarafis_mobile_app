@@ -1,5 +1,5 @@
 import { createStackNavigator } from '@react-navigation/stack';
-import MenuScreen from './MenuScreen';
+import MenuScreen from './MenuTabs';
 import Form1Screen from './forms/Form1Screen';
 import Form2Screen from './forms/Form2Screen';
 import Form3Screen from './forms/Form3Screen';
