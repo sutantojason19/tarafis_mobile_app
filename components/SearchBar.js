@@ -1,11 +1,21 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Dropdown } from "react-native-element-dropdown";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  TextInput,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const SearchBar = ({ title }) => {
-  const ITEM_HEIGHT = 48;
-  const [value, setValue] = useState(null);
+const SearchBar = ({ title, onPress, value }) => {
+  const [modalVisible, setModalVisible] = useState(false);
+  // const [value, setValue] = useState(null);
+  const [query, setQuery] = useState("");
 
   const data = [
     { label: "Rumah Sakit Siloam", value: "1" },
@@ -18,48 +28,100 @@ const SearchBar = ({ title }) => {
     { label: "RS Fatmawati", value: "8" },
   ];
 
+  const filteredData = data.filter((item) =>
+    item.label.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const handleSelect = (item) => {
+    // setValue(item);
+    setModalVisible(false);
+    setQuery("");
+    onPress(item)
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>
         {title} <Text style={{ color: "red" }}>*</Text>
       </Text>
 
-      <View style={styles.dropdownWrapper}>
-        <Ionicons name="search" size={20} color="#60a5fa" style={styles.icon} />
-        <Dropdown
-          style={styles.dropdown}
-          placeholderStyle={styles.placeholderStyle}
-          selectedTextStyle={styles.selectedTextStyle}
-          inputSearchStyle={styles.inputSearchStyle}
-          containerStyle={styles.dropdownContainer}
-          itemContainerStyle={styles.itemContainerStyle}
-          iconStyle={styles.iconStyle}
-          data={data}
-          search
-          maxHeight={250}
-          labelField="label"
-          valueField="value"
-          placeholder="Search hospital..."
-          searchPlaceholder="Type to search..."
-          value={value}
-          dropdownPosition="auto"
+      {/* Search bar that opens modal */}
+      <TouchableOpacity
+        style={styles.dropdownWrapper}
+        onPress={() => setModalVisible(true)}
+      >
+        <Ionicons name="search" size={20} color="#3B82F6" style={styles.icon} />
+        <View style={styles.dropdown}>
+          <Text
+            style={
+              value
+                ? styles.selectedTextStyle
+                : styles.placeholderStyle
+            }
+          >
+            {value ? value.label : "Search hospital..."}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
-          onChange={(item) => setValue(item.value)}
-          renderItem={(item, index) => (
-            <View>
-              <Text style={styles.itemText}>{item.label}</Text>
-              {/* Add divider between items, except the last one */}
-              {index < data.length - 1 && <View style={styles.divider} />}
-            </View>
-          )}
-          flatListProps={{
-            keyboardShouldPersistTaps: 'handled',
-            initialNumToRender: 10,
-            // ensure FlatList opens at top:
-            initialScrollIndex: 0,
-          }}
-        />
-      </View>
+      {/* Modal for searching */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalContainer}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color="#3B82F6"
+              onPress={() => setModalVisible(false)}
+            />
+            <Text style={styles.modalTitle}>Select Hospital</Text>
+          </View>
+
+          {/* Search input */}
+          <View style={styles.searchBarWrapper}>
+            <Ionicons
+              name="search"
+              size={20}
+              color="#3B82F6"
+              style={styles.modalSearchIcon}
+            />
+            <TextInput
+              style={styles.inputSearchStyle}
+              placeholder="Type to search..."
+              placeholderTextColor="#9CA3AF"
+              value={query}
+              onChangeText={setQuery}
+              autoFocus
+            />
+          </View>
+
+          {/* Results list */}
+          <FlatList
+            data={filteredData}
+            keyExtractor={(item) => item.value}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={styles.itemContainerStyle}
+                onPress={() => handleSelect(item)}
+              >
+                <Text style={styles.itemText}>{item.label}</Text>
+                {index < filteredData.length - 1 && (
+                  <View style={styles.divider} />
+                )}
+              </TouchableOpacity>
+            )}
+          />
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };
@@ -68,7 +130,7 @@ const styles = StyleSheet.create({
   container: {
     marginTop: 10,
     marginBottom: 10,
-    paddingRight: 10
+    paddingRight: 10,
   },
   label: {
     color: "#000",
@@ -82,7 +144,7 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     backgroundColor: "#fff",
-    borderColor: "#60a5fa",
+    borderColor: "#3B82F6",
     borderWidth: 1.5,
     borderRadius: 15,
     paddingLeft: 38,
@@ -92,6 +154,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+    justifyContent: "center",
   },
   placeholderStyle: {
     color: "#9CA3AF",
@@ -101,49 +164,68 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontSize: 15,
   },
-  inputSearchStyle: {
-    height: 40,
-    fontSize: 14,
-    borderRadius: 10,
-    borderColor: "#60a5fa",
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    color: "#111827",
-  },
-  iconStyle: {
-    tintColor: "#60a5fa",
-    width: 20,
-    height: 20,
-  },
   icon: {
     position: "absolute",
     left: 14,
     zIndex: 1,
   },
-  itemText: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: "#60a5fa",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#60a5fa",
-    marginHorizontal: 10,
-  },
-    dropdownContainer: {
-    borderRadius: 15,
-    borderColor: "#60a5fa",
-    borderWidth: 1.5,
+  modalContainer: {
+    flex: 1,
     backgroundColor: "#fff",
-    elevation: 3,
+    paddingTop: 50,
+    paddingHorizontal: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#111827",
+    marginLeft: 12,
+  },
+  searchBarWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    position: "relative",
+  },
+  modalSearchIcon: {
+    position: "absolute",
+    left: 14,
+    zIndex: 1,
+  },
+  inputSearchStyle: {
+    flex: 1,
+    height: 46,
+    fontSize: 15,
+    borderRadius: 15,
+    borderColor: "#3B82F6",
+    borderWidth: 1.5,
+    paddingLeft: 38,
+    color: "#111827",
+    backgroundColor: "#fff",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
+    elevation: 2,
+  },
+  itemText: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#3B82F6",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#3B82F6",
+    marginHorizontal: 10,
   },
   itemContainerStyle: {
-  borderRadius: 10,
+    borderRadius: 10,
   },
 });
 

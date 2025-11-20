@@ -1,8 +1,8 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons"; // make sure you have expo/vector-icons or react-native-vector-icons
+import { View, Text, TouchableOpacity, StyleSheet, TextInput } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
-const MultiSelectCheckbox = ({ title, options, selected, onChange }) => {
+const MultiSelectCheckbox = ({ title, options, selected, onChange, otherValue, onOtherChange }) => {
   const handleToggle = (option) => {
     if (selected.includes(option)) {
       onChange(selected.filter((item) => item !== option));
@@ -14,6 +14,7 @@ const MultiSelectCheckbox = ({ title, options, selected, onChange }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{title}</Text>
+
       {options.map((option) => (
         <TouchableOpacity
           key={option}
@@ -21,16 +22,27 @@ const MultiSelectCheckbox = ({ title, options, selected, onChange }) => {
           onPress={() => handleToggle(option)}
           activeOpacity={0.7}
         >
-          <View style={styles.checkboxContainer}>
-            {selected.includes(option) ? (
-              <Ionicons name="checkbox" size={24} color="#3B82F6" />
-            ) : (
-              <Ionicons name="square-outline" size={24} color="#3B82F6" />
-            )}
-          </View>
+          <Ionicons
+            name={selected.includes(option) ? "checkbox" : "square-outline"}
+            size={24}
+            color="#3B82F6"
+            style={styles.checkboxContainer}
+          />
           <Text style={styles.optionText}>{option}</Text>
         </TouchableOpacity>
       ))}
+
+      {/* Single "Other" Input Field */}
+      <View style={styles.otherContainer}>
+        <Text style={styles.otherLabel}>Lainnya:</Text>
+        <TextInput
+          value={otherValue}
+          onChangeText={onOtherChange}
+          placeholder="Tulis opsi lainnya..."
+          style={styles.otherInput}
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
     </View>
   );
 };
@@ -45,7 +57,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
     elevation: 2,
-    width:'95%',
+    width: "95%",
+    marginBottom: 10,
   },
   title: {
     fontSize: 18,
@@ -64,6 +77,22 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 16,
     color: "#3B82F6",
+  },
+  otherContainer: {
+    marginTop: 8,
+  },
+  otherLabel: {
+    fontSize: 16,
+    color: "#3B82F6",
+    marginBottom: 6,
+  },
+  otherInput: {
+    borderWidth: 1,
+    borderColor: "#3B82F6",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 40,
+    color: "#111827",
   },
 });
 

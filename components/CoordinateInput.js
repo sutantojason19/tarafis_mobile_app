@@ -1,29 +1,57 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import * as Location from 'expo-location';
+import { Ionicons } from "@expo/vector-icons";
 
-export default function CoordinateInput() {
-  const [coords, setCoords] = useState('');
+export default function CoordinateInput({onPress, value}) {
+  // const [coords, setCoords] = useState('');
   const [isValid, setIsValid] = useState(true);
 
   const validateCoordinates = (text) => {
-    setCoords(text);
     const regex = /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?),\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/;
     setIsValid(regex.test(text.trim()));
   };
 
+  const getLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      alert('Permission to access location was denied');
+      return;
+    }
+
+    const location = await Location.getCurrentPositionAsync({});
+    const formatted = `${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`;
+    validateCoordinates(formatted);
+    onPress(formatted)
+
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Koordinat <Text style={styles.required}>*</Text></Text>
-      <TextInput
-        style={[
-          styles.input,
-          { borderColor: isValid ? '#3B82F6' : '#EF4444' }, // blue or red
-        ]}
-        placeholder="latitude, longitude"
-        value={coords}
-        onChangeText={validateCoordinates}
-        autoCapitalize="none"
-      />
+      <Text style={styles.label}>
+        Koordinat <Text style={styles.required}>*</Text>
+      </Text>
+
+      <View style={styles.row}>
+        {/* Coordinate Display Box */}
+        <View
+          style={[
+            styles.coordBox,
+            { borderColor: isValid ? '#3B82F6' : '#EF4444' },
+          ]}
+        >
+          <Text style={styles.coordText}>
+            {value ? value : 'Belum ada lokasi'}
+          </Text>
+        </View>
+
+        {/* Button */}
+        <TouchableOpacity style={styles.button} onPress={getLocation}>
+          <Ionicons name="navigate-circle-outline" size={22} color="white" />
+          <Text style={styles.buttonText}>Ambil Lokasi</Text>
+        </TouchableOpacity>
+      </View>
+
       {!isValid && (
         <Text style={styles.errorText}>
           Format tidak valid. Gunakan contoh: -6.200000, 106.816666
@@ -35,26 +63,51 @@ export default function CoordinateInput() {
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 20,
+    marginBottom: 24,
+    paddingRight: 10,
+    marginTop: 10
   },
   label: {
     fontSize: 16,
     fontWeight: '600',
     color: '#111827',
-    marginBottom: 12,
-    marginTop: 10
+    marginBottom: 10,
   },
-   required: {
-    color: 'red',
+  required: {
+    color: '#EF4444',
   },
-  input: {
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12, // modern spacing between elements
+  },
+  coordBox: {
+    flex: 1,
     borderWidth: 2,
-    width: '95%',
-    borderColor: '#E5E7EB',
-    borderRadius: 18,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+  },
+  coordText: {
+    fontSize: 15,
+    color: '#374151',
+  },
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 6,
+    elevation: 2,
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
   errorText: {
     color: '#EF4444',

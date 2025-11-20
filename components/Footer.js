@@ -4,10 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Button from './Button';
 import { FontAwesome5 } from '@expo/vector-icons';
 
-export default function Footer({ mode = 'footer', title }) {
-    const onPress = () => {
-        alert('Congrats you submitted your form')
-    }
+export default function Footer({ mode = 'footer', title, onPress }) {
 
     const handleBack = () => {
         alert('Back button pressed')
@@ -43,15 +40,14 @@ export default function Footer({ mode = 'footer', title }) {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }} 
                 style={{
-                width: 180,
-                height: 55,
-                borderRadius: 15,
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderWidth: 1.5,
-                borderColor: 'rgba(255,255,255,0.4)',
-                flexDirection:'row'
-
+                  width: 180,
+                  height: 55,
+                  borderRadius: 15,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderWidth: 1.5,
+                  borderColor: 'rgba(255,255,255,0.4)',
+                  flexDirection:'row'
                 }}
             >
                 <Text 
@@ -67,6 +63,8 @@ export default function Footer({ mode = 'footer', title }) {
                 >
                 Submit
                 </Text>
+                {console.log("Footer received onPress:", typeof onPress)}
+
                 <FontAwesome5 style={{marginLeft: 20}} size={20} name='arrow-right' color='white'/>
 
             </LinearGradient>

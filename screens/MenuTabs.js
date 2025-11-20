@@ -9,6 +9,10 @@ const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = width * 0.42;
 
 export default function MenuTabs({ navigation }) {
+
+  const onDelete = () => {
+    alert('Delete Function')
+  }
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -55,6 +59,7 @@ export default function MenuTabs({ navigation }) {
         </View>
 
         <Text style={styles.header2}>Created Tasks</Text>
+         
       </View>
     </View>
   );
@@ -64,6 +69,11 @@ export default function MenuTabs({ navigation }) {
 
 
 const styles = StyleSheet.create({
+  taskCardTitle:{
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
@@ -93,6 +103,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   largeCard: { height: 200 },
+  createdCard:{height: 100, width: '95%'},
   smallCard: { height: 130 },
   cardTitle: {
     fontSize: 18,

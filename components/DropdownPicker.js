@@ -9,14 +9,15 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 
-export default function DropdownPicker({ title, options = [], onSelect }) {
-  const [selected, setSelected] = useState(null);
+export default function DropdownPicker({ title, options = [], onSelect, value }) {
+  // const [selected, setSelected] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
+  const selected = options.find(o => o.value === value) || null 
+
   const handleSelect = (item) => {
-    setSelected(item);
     setModalVisible(false);
-    onSelect?.(item); // send selected value to parent if needed
+    onSelect?.(item.value); // send selected value to parent if needed
   };
 
   return (

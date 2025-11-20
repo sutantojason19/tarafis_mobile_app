@@ -21,6 +21,7 @@ export default function InputBox({ title, value, onChangeText, placeholder }) {
 const styles = StyleSheet.create({
   container: {
     marginBottom: 20,
+    marginTop: 10
   },
   label: {
     color: 'black', 

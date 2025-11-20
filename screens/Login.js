@@ -11,6 +11,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import {API_URL} from '@env'
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('');
@@ -18,19 +20,26 @@ export default function Login({ navigation }) {
 
   const onLogin = async () => {
   try {
-    const response = await fetch('http://192.168.1.36:3000/api/users/login', {
+    const response = await fetch('http://192.168.1.29:3000/api/users/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
 
     const data = await response.json();
+
     if (response.ok) {
       alert('Welcome ' + data.user.name);
+
+      // Save the token and user_id correctly
+      await AsyncStorage.setItem('token', data.token);
+      await AsyncStorage.setItem('user_id', String(data.user.user_id));
+
       navigation.replace('MainApp', { screen: 'Menu' });
     } else {
       alert(data.message);
     }
+
   } catch (err) {
     console.error(err);
     alert('Connection error');
@@ -79,7 +88,7 @@ export default function Login({ navigation }) {
             />
 
             <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: 10 }}>
-              <Text style={styles.forgotText}>Forgot password? contact IT support</Text>
+              <Text style={styles.forgotText}>Forgot password? Contact IT support</Text>
             </TouchableOpacity>
 
             {/* Gradient Sign In Button */}
