@@ -11,6 +11,7 @@ export default function TaskCard({
   onView = null,    // optional callback, otherwise navigates to 'ViewForm'
   onEdit = null,    // optional callback, otherwise navigates to 'Form4'
   formTypeColor = '#22C55E',
+  date = '12-8-2025'
 }) {
   const navigation = useNavigation();
 
@@ -25,25 +26,29 @@ export default function TaskCard({
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: formTypeColor }]}>
       {/* Top row: Icon + Title */}
       <View style={styles.cardHeader}>
-        <View style={[styles.iconWrapper, { backgroundColor: formTypeColor }]}>
-          <FontAwesome5 name={iconName} size={22} color="#fff" />
+        <View style={[styles.iconWrapper, { backgroundColor: '#F3F4F6' }]}>
+          <FontAwesome5 name={iconName} size={22} color= {formTypeColor} />
         </View>
-        <Text style={styles.cardTitle}>{title}</Text>
+        <View>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardDate}>{date}</Text>
+        </View>
       </View>
+
 
       {/* Action buttons */}
       <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.actionBtn} onPress={handleView}>
+        {/* <TouchableOpacity style={styles.actionBtn} onPress={handleView}>
           <FontAwesome5 name="eye" size={16} color="#3B82F6" style={styles.iconSpacing} />
           <Text style={styles.actionText}>View</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
         <TouchableOpacity style={styles.actionBtn} onPress={handleEdit}>
           <FontAwesome5 name="edit" size={16} color="#10B981" style={styles.iconSpacing} />
-          <Text style={styles.actionText}>Edit</Text>
+          <Text style={styles.actionText}>View / Edit</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.actionBtn} onPress={onDelete}>
@@ -69,6 +74,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     marginBottom: 16,
     alignSelf: 'center',
+    marginTop: 15,
   },
 
   cardHeader: {
@@ -89,7 +95,14 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: '#fff',
+    flexShrink: 1,
+  },
+
+  cardDate: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
     flexShrink: 1,
   },
 

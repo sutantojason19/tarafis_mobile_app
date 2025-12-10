@@ -9,6 +9,7 @@ import {
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from "../../components/FormHeader";
+import FormHeader from '../../components/FormHeader';
 import DatePicker from "../../components/DatePicker";
 import FooterPagination from "../../components/FooterPagination";
 import InputBox from '../../components/InputBox';
@@ -22,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PRIMARY = "#3B82F6";
 
-export default function Form4screen() {
+export default function Form4screen({navigation}) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [page, setPage] = useState(1); // 1..3
@@ -84,7 +85,6 @@ export default function Form4screen() {
       const kuantitasToSend = kuantitas?.value ?? kuantitas ?? "";
       const lokasiToSend = lokasi?.label ?? '';
       const userId = await AsyncStorage.getItem("user_id");
-
 
       formData.append('user_id', userId);
       formData.append('nama_customer', namaCust);
@@ -153,7 +153,7 @@ export default function Form4screen() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <Header title={"Technician Service In House"} />
+      <FormHeader title={"Technician Service In House"} navigation={navigation} />
 
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContainer}

@@ -76,9 +76,13 @@ const CameraInput = ({ title, onImageSelected, image }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>
-        {title} <Text style={styles.required}>*</Text>
-      </Text>
+      {title !== 'none' && (
+        <Text style={styles.title}>
+          {title}
+          <Text style={styles.required}> *</Text>
+        </Text>
+      )}
+
 
       <TouchableOpacity style={styles.button} onPress={pickImage} activeOpacity={0.8}>
         {previewUri ? (

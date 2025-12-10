@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-const SearchBar = ({ title, onPress, value }) => {
+const SearchBar = ({ title, onPress, value, hospitalData}) => {
   const [modalVisible, setModalVisible] = useState(false);
   // const [value, setValue] = useState(null);
   const [query, setQuery] = useState("");
@@ -28,15 +28,16 @@ const SearchBar = ({ title, onPress, value }) => {
     { label: "RS Fatmawati", value: "8" },
   ];
 
-  const filteredData = data.filter((item) =>
-    item.label.toLowerCase().includes(query.toLowerCase())
-  );
+const filteredData = (hospitalData ?? []).filter((item) =>
+  (item.name ?? "").toLowerCase().includes(query.toLowerCase())
+);
+
 
   const handleSelect = (item) => {
     // setValue(item);
     setModalVisible(false);
     setQuery("");
-    onPress(item)
+    onPress(item.name, item.street)
   };
 
   return (
@@ -105,15 +106,17 @@ const SearchBar = ({ title, onPress, value }) => {
 
           {/* Results list */}
           <FlatList
-            data={filteredData}
-            keyExtractor={(item) => item.value}
+            data={hospitalData}
+            keyExtractor={(item) => item.hospital_id}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item, index }) => (
               <TouchableOpacity
                 style={styles.itemContainerStyle}
                 onPress={() => handleSelect(item)}
               >
-                <Text style={styles.itemText}>{item.label}</Text>
+              <Text style={styles.itemText}>
+                {(item.name || '').replace(/_/g, ' ')}
+              </Text>
                 {index < filteredData.length - 1 && (
                   <View style={styles.divider} />
                 )}

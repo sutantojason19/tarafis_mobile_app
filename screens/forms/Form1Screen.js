@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, ActivityIndicator } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import FormHeader from '../../components/FormHeader';
 import InputBox from '../../components/InputBox';
@@ -31,6 +31,34 @@ export default function Form1Screen({ navigation }) {
   const [coords, setCoords] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [other, setOther] = useState('')
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [hospitals, setHospitals] = useState([]);
+
+
+  // cache to avoid refetching same region
+  const cacheRef = useRef(new Map());
+
+  // store current AbortController so we can cancel previous requests
+  const controllerRef = useRef(null);
+
+  const filteredHospitalData = useMemo(() => {
+  if (!Array.isArray(hospitals) || !region) return [];
+
+  const regionLower = region.toLowerCase();
+  return hospitals
+    .filter(h => (h.region || '').toLowerCase() === regionLower)   // exact region match
+    .map(h => ({
+      label: (h.name || '').replace(/_/g, ' '),   // display name
+      value: String(h.hospital_id ?? ''),         // unique id as string
+      raw: h                                       // optional: pass full object if needed
+    }));
+}, [hospitals, region]);
+
+const searchbarSelect = (hosp_name, addr) => {
+  setAlamat(addr)
+  setLokasi(hosp_name)
+}
 
   
   const options = [
@@ -53,6 +81,74 @@ export default function Form1Screen({ navigation }) {
       hideSub.remove();
     };
   }, []);
+
+//   useEffect(() => {
+//   hospitals.forEach(h => {
+//     console.log(
+//       `${h.hospital_id}: ${h.name} — ${h.street} (${h.latitude}, ${h.longitude})`
+//     );
+//   });
+// }, [hospitals]);
+
+
+   const onSelectRegion = async (selectReg) => {
+    setRegion(selectReg);
+    setError(null);
+
+    // if cached, use it and skip network
+    if (cacheRef.current.has(selectReg)) {
+      setHospitals(cacheRef.current.get(selectReg));
+      return;
+    }
+
+    // cancel previous request if still pending
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
+    setLoading(true);
+    try {
+      const url = `http://192.168.1.17:3000/api/forms/hospital/${encodeURIComponent(selectReg)}`;
+
+      const resp = await axios.get(url, {
+        signal: controller.signal, // axios supports AbortController in modern versions
+        timeout: 10000,            // optional: 10s hard timeout
+      });
+
+      const hospitalsRaw = Array.isArray(resp.data?.retrieved_hospitals)
+        ? resp.data.retrieved_hospitals
+        : [];
+
+      const normalized = hospitalsRaw.map(h => ({
+        hospital_id: Number(h.hospital_id),
+        region: h.region || '',
+        name: h.name || '',
+        street: h.street || '',
+        latitude: h.latitude != null && h.latitude !== '' ? Number(h.latitude) : null,
+        longitude: h.longitude != null && h.longitude !== '' ? Number(h.longitude) : null,
+      }));
+
+      // cache response
+      cacheRef.current.set(selectReg, normalized);
+
+      setHospitals(normalized);
+    } catch (err) {
+      if (axios.isCancel?.(err) || err.name === 'CanceledError') {
+        // request canceled — ignore
+        return;
+      }
+      console.error('fetch error', err);
+      setError(err?.response?.data?.message || 'Failed to load hospitals');
+      setHospitals([]);
+    } finally {
+      setLoading(false);
+      controllerRef.current = null;
+    }
+  };
+   
+
 
 const onSubmit = async () => {
   try {
@@ -148,11 +244,20 @@ const onSubmit = async () => {
           nestedScrollEnabled
         > 
           <DropdownPicker value={namaSales} title="Nama Sales" options={nama_sales} onSelect={setNamaSales} />
-          <DropdownPicker value={region} title="Region" options={regions} onSelect={setRegion}/>
-          <SearchBar value={lokasi} title="Nama Lokasi" onDropdownOpenChange={setDropdownOpen} onPress={setLokasi} />
+          <DropdownPicker value={region} title="Region" options={regions} onSelect={onSelectRegion}/>
+          {loading && (
+            <View style={styles.spinner}>
+              <ActivityIndicator size="small" />
+              <Text style={styles.spinnerText}>Loading hospitals…</Text>
+            </View>
+          )}
+
+          {error && <Text style={styles.errorText}>{error}</Text>}
+
+          <SearchBar value={lokasi} title="Nama Lokasi" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
           <CoordinateInput value={coords} onPress={setCoords}/>
-          <InputBox value={lokasi} title="Alamat Lokasi" onChangeText={setNamaUser} />
-          <InputBox value={alamat} title="Nama User" onChangeText={setAlamat} />
+          <InputBox value={alamat} title="Alamat Lokasi" onChangeText={setAlamat} />
+          <InputBox value={namaUser} title="Nama User" onChangeText={setNamaUser}/>
           <DropdownPicker value={jabat} title="Jabatan User" options={jabatan} onSelect={setJabatan} />
           <MultiSelectCheckbox value={selected} title="Tujuan Kunjungan" options={options} selected={selected} onChange={setSelected} otherValue={other} onOtherChange={setOther} />
           <DropdownPicker value={status} title="Status Kunjungan" options={status_kunjungan} onSelect={setStatus}/>
@@ -174,4 +279,15 @@ const onSubmit = async () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   formContent: { flex: 1 },
+  spinner: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+    alignSelf: 'flex-start', // similar to inline-block
+  },
+  spinnerText: {
+    fontSize: 14,
+    color: '#333',
+  }
 });

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons } from "@expo/vector-icons";
 
-export default function CoordinateInput({onPress, value}) {
-  // const [coords, setCoords] = useState('');
+export default function CoordinateInput({ onPress, value, target }) {
   const [isValid, setIsValid] = useState(true);
 
   const validateCoordinates = (text) => {
@@ -12,18 +11,66 @@ export default function CoordinateInput({onPress, value}) {
     setIsValid(regex.test(text.trim()));
   };
 
+  // Haversine formula: returns distance in kilometers
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  
+  const haversineDistanceKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth radius km
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
   const getLocation = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Permission to access location was denied');
-      return;
+    try {
+      // Ensure we have a target coordinate
+      if (!target || typeof target.lat !== 'number' || typeof target.lng !== 'number') {
+        Alert.alert('Target coordinate missing', 'No target coordinate provided to check distance.');
+        return;
+      }
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Permission to access location was denied');
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({ enableHighAccuracy: true });
+      const userLat = Number(location.coords.latitude);
+      const userLng = Number(location.coords.longitude);
+
+      // formatted string for display
+      const formatted = `${userLat.toFixed(6)}, ${userLng.toFixed(6)}`;
+
+      // validate format (for UI)
+      validateCoordinates(formatted);
+
+      // compute distance
+      const distanceKm = haversineDistanceKm(userLat, userLng, target.lat, target.lng);
+
+      // threshold in km
+      const thresholdKm = 1;
+
+      if (distanceKm <= thresholdKm) {
+        // within radius -> call onPress with formatted coordinates
+        onPress && onPress(formatted);
+      } else {
+        // not within radius -> alert user with distance
+        const distanceMeters = Math.round(distanceKm * 1000);
+        Alert.alert(
+          'Move closer',
+          `You are ${distanceMeters} meters away from the hospital. Please move closer (within ${thresholdKm * 1000} m).`
+        );
+      }
+    } catch (err) {
+      console.error('getLocation error', err);
+      Alert.alert('Location error', 'Could not get location. Please try again.');
     }
-
-    const location = await Location.getCurrentPositionAsync({});
-    const formatted = `${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)}`;
-    validateCoordinates(formatted);
-    onPress(formatted)
-
   };
 
   return (
@@ -79,7 +126,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12, // modern spacing between elements
+    gap: 12,
   },
   coordBox: {
     flex: 1,

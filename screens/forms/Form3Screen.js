@@ -9,7 +9,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
-import Header from "../../components/FormHeader";
+// import Header from "../../components/Header";
+import FormHeader from '../../components/FormHeader';
 import DatePicker from "../../components/DatePicker";
 import FooterPagination from "../../components/FooterPagination";
 import InputBox from '../../components/InputBox';
@@ -22,7 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PRIMARY = "#3B82F6";
 
-export default function Form3screen() {
+export default function Form3screen({navigation}) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [lokasi, setLokasi] = useState('');
@@ -164,7 +165,7 @@ export default function Form3screen() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <Header title={"Technician Activity"} />
+      <FormHeader title={"Technician Activity"} navigation={navigation} />
 
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContainer}

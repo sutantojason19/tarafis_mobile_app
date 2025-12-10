@@ -4,6 +4,7 @@ import Form1Screen from './forms/Form1Screen';
 import Form2Screen from './forms/Form2Screen';
 import Form3Screen from './forms/Form3Screen';
 import Form4Screen from './forms/Form4Screen';
+import CardInfo from '../components/CardInfo';
 
 const Stack = createStackNavigator();
 
@@ -15,6 +16,7 @@ export default function AppNavigator() {
       <Stack.Screen name="Form2" component={Form2Screen} />
       <Stack.Screen name="Form3" component={Form3Screen} />
       <Stack.Screen name="Form4" component={Form4Screen} />
+      <Stack.Screen name="CardInfo" component={CardInfo}/>
     </Stack.Navigator>
   );
 }
