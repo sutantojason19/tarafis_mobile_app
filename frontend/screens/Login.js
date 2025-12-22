@@ -84,6 +84,7 @@ export default function Login({ navigation }) {
         // Persist token + user_id for authenticated sessions
         await AsyncStorage.setItem('token', data.token);
         await AsyncStorage.setItem('user_id', String(data.user.user_id));
+        await AsyncStorage.setItem('position', String(data.user.position));
 
         // Replace so user cannot return to login screen
         navigation.replace('MainApp', { screen: 'Menu' });
@@ -91,9 +92,22 @@ export default function Login({ navigation }) {
         alert(data.message || 'Login failed');
       }
     } catch (err) {
-      alert('Connection error');
+      console.error("Login error:", {
+        message: err?.message,
+        stack: err?.stack,
+        error: err
+      });
+
+      let explanation = "A network or server error occurred.";
+
+      if (err?.message) {
+        explanation += "\n\nDetails: " + err.message;
+      }
+
+      alert(explanation);
     }
-  };
+
+      };
 
   return (
     <KeyboardAvoidingView
@@ -109,7 +123,7 @@ export default function Login({ navigation }) {
           end={{ x: 1, y: 1 }}
           style={styles.topSection}
         >
-          <Text style={styles.headerText}>Hello</Text>
+          <Text style={styles.headerText}>Welcome</Text>
           <Text style={styles.subHeaderText}>Sign in!</Text>
         </LinearGradient>
 
