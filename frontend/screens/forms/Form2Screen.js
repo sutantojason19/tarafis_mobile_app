@@ -89,9 +89,9 @@ export default function Form2Screen({ navigation }) {
   // Called by SearchBar when a hospital is selected: set nama lokasi + address
   const searchbarSelect = (hosp_name, addr) => {
     setAlamat(addr);
-    setLokasi(hosp_name);
+    setLokasi({ label: hosp_name.replace(/_/g, ' '), addr });
   };
-
+  
   /* -------------------------
    * Region selection: fetch hospitals (with caching + cancellation)
    * ------------------------- */

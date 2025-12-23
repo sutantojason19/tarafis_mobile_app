@@ -102,7 +102,7 @@ export default function Form1Screen({ navigation }) {
   // callback used when user selects a hospital from SearchBar modal
   const searchbarSelect = (hosp_name, addr) => {
     setAlamat(addr);
-    setLokasi(hosp_name);
+    setLokasi({ label: hosp_name.replace(/_/g, ' '), addr });
   };
 
   /* -------------------------
