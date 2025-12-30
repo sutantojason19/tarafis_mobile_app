@@ -17,26 +17,34 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 
-export default function InputBox({ title, value, onChangeText, placeholder }) {
+export default function InputBox({
+  title,
+  value,
+  onChangeText,
+  placeholder,
+  onEndEditing,
+}) {
   return (
     <View style={styles.container}>
-
-      {/* Label Section */}
       <Text style={styles.label}>
         {title} <Text style={styles.required}>*</Text>
       </Text>
 
-      {/* Input Field */}
       <TextInput
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor="#9CA3AF"
+        onEndEditing={(e) => {
+          console.log('[InputBox] onEndEditing fired:', e.nativeEvent?.text);
+          onEndEditing?.(e);
+        }}
       />
     </View>
   );
 }
+
 
 /* ------------------------------------------
  * Styles

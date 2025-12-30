@@ -54,21 +54,19 @@ export default function Login({ navigation }) {
    *  - Stores token + user_id in AsyncStorage
    *  - Navigates user into the main application via `navigation.replace`
    */
-  const onLogin = async () => {
+ const onLogin = async () => {
     try {
       // Normalize API URL (remove trailing slashes)
       const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = base || 'http://192.168.1.3:3000'; // fallback for local debugging
+      const baseWithFallback = base || 'http://192.168.1.3:3000';
       const url = `${baseWithFallback}/api/users/login`;
 
-      // Send login request
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
 
-      // Basic safety: ensure server returns JSON
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         alert('Server error: invalid response');
@@ -77,37 +75,26 @@ export default function Login({ navigation }) {
 
       const data = await response.json();
 
-      // Successful authentication
       if (response.ok) {
-        alert('Welcome ' + data.user.name);
+        alert('Welcome ' + data.user?.name);
 
-        // Persist token + user_id for authenticated sessions
         await AsyncStorage.setItem('token', data.token);
-        await AsyncStorage.setItem('user_id', String(data.user.user_id));
-        await AsyncStorage.setItem('position', String(data.user.position));
+        await AsyncStorage.setItem('user_id', String(data.user?.user_id));
+        await AsyncStorage.setItem('position', String(data.user?.position));
 
-        // Replace so user cannot return to login screen
         navigation.replace('MainApp', { screen: 'Menu' });
       } else {
         alert(data.message || 'Login failed');
       }
     } catch (err) {
-      console.error("Login error:", {
-        message: err?.message,
-        stack: err?.stack,
-        error: err
-      });
-
-      let explanation = "A network or server error occurred.";
-
-      if (err?.message) {
-        explanation += "\n\nDetails: " + err.message;
-      }
-
-      alert(explanation);
+      alert(
+        'A network or server error occurred.' +
+        (err?.message ? `\n\nDetails: ${err.message}` : '')
+      );
     }
+  };
 
-      };
+
 
   return (
     <KeyboardAvoidingView

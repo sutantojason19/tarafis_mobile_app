@@ -193,6 +193,50 @@ router.get('/all', async (req, res) => {
 });
 
 /* ---------------------------------------------------------------------------
+ * GET /products/by-serial/:serial_number
+ * Return product data if serial number exists
+ * ------------------------------------------------------------------------- */
+router.get('/products/by-serial/:serial_number', async (req, res) => {
+  const { serial_number } = req.params;
+  let conn;
+
+  if (!serial_number) {
+    return res.status(400).json({ message: 'serial_number is required' });
+  }
+
+  try {
+    conn = await pool.getConnection();
+
+    const rows = await conn.query(
+      `
+      SELECT id, nama_produk, tipe_produk, merk_produk, serial_number
+      FROM products
+      WHERE serial_number = ?
+      LIMIT 1
+      `,
+      [serial_number]
+    );
+
+    // mariadb/mysql returns [] if no rows
+    if (rows.length === 0) {
+      return res.status(404).json({ exists: false });
+    }
+
+    return res.json({
+      exists: true,
+      product: rows[0],
+    });
+  } catch (err) {
+    console.error('Error fetching product by serial:', err);
+    return res.status(500).json({ message: 'Server error fetching product' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+
+
+/* ---------------------------------------------------------------------------
  * GET /hospital/:region
  * Returns hospitals for a given region (case-insensitive match)
  * ------------------------------------------------------------------------- */

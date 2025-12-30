@@ -35,6 +35,8 @@ import { kuantitas_option } from "../../data/appData";
 import axios from "axios";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@env';
+import API_BASE from "../../config/api";
+
 
 const PRIMARY = "#3B82F6";
 
@@ -47,7 +49,7 @@ export default function Form4screen({ navigation }) {
   const [productType, setProductType] = useState("");
   const [lokasi, setLokasi] = useState("");
   const [serialNum, setSerialNum] = useState("");
-  const [prodName, setProdname] = useState("");
+  const [prodName, setProdName] = useState("");
   const [merkProd, setMerk] = useState("");
   const [kuantitas, setKuantitas] = useState("");
   const [namaCust, setNamaCust] = useState("");
@@ -61,6 +63,8 @@ export default function Form4screen({ navigation }) {
   const [Capa, setCapa] = useState("");
   const [fotoCapa, setFotoCapa] = useState("");
   const [deskMas, setDesMas] = useState("");
+  const [prodExist, setProdExist] = useState(false);
+  
 
   // Convert Date -> YYYY-MM-DD
   const setDate = (d) => {
@@ -156,6 +160,34 @@ export default function Form4screen({ navigation }) {
     }
   };
 
+  const onSerialBlur = async (e) => {
+    const serial = e?.nativeEvent?.text;
+    if (!serial) return;
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/forms/products/by-serial/${serial}`
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+
+        if (data.exists) {
+          setProdName(data.product.nama_produk);
+          setProductType(data.product.tipe_produk);
+          setMerk(data.product.merk_produk);
+          setProdExist(true);
+        } else {
+          setProdExist(false);
+        }
+      } else {
+        setProdExist(false);
+      }
+    } catch (err) {
+      console.error('[onSerialBlur] error:', err);
+    }
+  };
+
   const showBottomBar = !keyboardVisible && !dropdownOpen;
   const rightTitle = page !== 3 ? "Next" : "Submit";
   const leftDisabled = page === 1;
@@ -187,8 +219,8 @@ export default function Form4screen({ navigation }) {
           {page === 1 && (
             <View style={styles.pageInner}>
               <Text style={styles.sectionTitle}>Detail Produk</Text>
-              <InputBox title="Serial Number" value={serialNum} onChangeText={setSerialNum} />
-              <InputBox title="Nama Produk" value={prodName} onChangeText={setProdname} />
+              <InputBox title="Serial Number" value={serialNum} onChangeText={setSerialNum} onEndEditing={onSerialBlur} />
+              <InputBox title="Nama Produk" value={prodName} onChangeText={setProdName} />
               <InputBox title="Tipe Produk" value={productType} onChangeText={setProductType} />
               <InputBox title="Merk Produk" value={merkProd} onChangeText={setMerk} />
               <DropdownPicker

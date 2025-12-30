@@ -26,7 +26,7 @@
  * This file is intended to stay clean and declarative — complex logic (API, helpers)
  * should be separated when the project grows.
  */
-
+import API_BASE from "../../config/api";
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -34,6 +34,7 @@ import {
   StyleSheet,
   Platform,
   Keyboard,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -77,6 +78,8 @@ export default function Form3screen({ navigation }) {
   const [beritaAcara, setBerita] = useState("");
   const [fotoKegiatan, setFotoKegiatan] = useState("");
   const [fotoBa, setFotoBA] = useState("");
+  const [prodExist, setProdExist] = useState(false);
+
 
   /**
    * Format date for MariaDB (YYYY-MM-DD)
@@ -85,6 +88,37 @@ export default function Form3screen({ navigation }) {
     const formatted = new Date(d).toISOString().slice(0, 10);
     setTgl(formatted);
   };
+
+  const onSerialBlur = async (e) => {
+    const serial = e?.nativeEvent?.text;
+    if (!serial) return;
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/forms/products/by-serial/${serial}`
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+
+        if (data.exists) {
+          setProdName(data.product.nama_produk);
+          setTipeProd(data.product.tipe_produk);
+          setMerk(data.product.merk_produk);
+          setProdExist(true);
+        } else {
+          setProdExist(false);
+        }
+      } else {
+        setProdExist(false);
+      }
+    } catch (err) {
+      console.error('[onSerialBlur] error:', err);
+    }
+  };
+
+
+
 
   /**
    * Keyboard listeners — hide bottom bar when typing
@@ -229,7 +263,13 @@ export default function Form3screen({ navigation }) {
             <View style={styles.pageInner}>
               <Text style={styles.sectionTitle}>Detail Produk</Text>
 
-              <InputBox value={serialNumber} title="Serial Number" onChangeText={setSerialNumber} />
+              <InputBox
+                title="Serial Number"
+                value={serialNumber}
+                onChangeText={setSerialNumber}
+                onEndEditing={onSerialBlur}
+              />
+
               <InputBox value={prodName} title="Nama Produk" onChangeText={setProdName} />
               <InputBox value={tipeProd} title="Tipe Produk" onChangeText={setTipeProd} />
 
