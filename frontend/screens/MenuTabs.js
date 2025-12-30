@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import API_BASE from '../config/api';
 import {
   View,
   Text,
@@ -179,7 +180,7 @@ export default function MenuTabs({ navigation }) {
    * @returns {Promise<Object>}
    */
   const getAllForms = async (userId) => {
-    const url = `${API_URL}/api/forms/all`;
+    const url = `${API_BASE}/api/forms/all`;
     const resp = await axios.get(url, { params: { user_id: userId } });
 
     return {

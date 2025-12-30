@@ -220,6 +220,11 @@ export default function Form4screen({ navigation }) {
             <View style={styles.pageInner}>
               <Text style={styles.sectionTitle}>Detail Produk</Text>
               <InputBox title="Serial Number" value={serialNum} onChangeText={setSerialNum} onEndEditing={onSerialBlur} />
+              {prodExist === false && (
+                <Text style={{ color: '#6B7280', marginTop: 4 }}>
+                  Produk baru — silakan lengkapi detail produk
+                </Text>
+              )}
               <InputBox title="Nama Produk" value={prodName} onChangeText={setProdName} />
               <InputBox title="Tipe Produk" value={productType} onChangeText={setProductType} />
               <InputBox title="Merk Produk" value={merkProd} onChangeText={setMerk} />

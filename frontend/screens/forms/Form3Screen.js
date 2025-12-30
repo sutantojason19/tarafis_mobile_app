@@ -270,6 +270,13 @@ export default function Form3screen({ navigation }) {
                 onEndEditing={onSerialBlur}
               />
 
+              {prodExist === false && (
+                <Text style={{ color: '#6B7280', marginTop: 4 }}>
+                  Produk baru — silakan lengkapi detail produk
+                </Text>
+              )}
+
+
               <InputBox value={prodName} title="Nama Produk" onChangeText={setProdName} />
               <InputBox value={tipeProd} title="Tipe Produk" onChangeText={setTipeProd} />
 
