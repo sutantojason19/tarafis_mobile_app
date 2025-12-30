@@ -275,7 +275,7 @@ export default function MenuTabs({ navigation }) {
               </TouchableOpacity>
             )}
 
-            {position?.toLowerCase() === 'sales' && (
+            {position?.toLowerCase() === 'technician' && (
               <TouchableOpacity onPress={() => navigation.navigate('Form3')}>
                 <LinearGradient colors={['#60A5FA', '#3B82F6']} style={[styles.card, styles.smallCard]}>
                   <FontAwesome5 name="chalkboard-teacher" size={38} color="#fff" />
@@ -296,7 +296,7 @@ export default function MenuTabs({ navigation }) {
               </TouchableOpacity>
             )}
 
-            {position?.toLowerCase() === 'sales' && (
+            {position?.toLowerCase() === 'technician' && (
               <TouchableOpacity onPress={() => navigation.navigate('Form4')}>
                 <View style={[styles.card, styles.largeCard, { backgroundColor: '#86EFAC' }]}>
                   <FontAwesome5 name="tools" size={38} color="#fff" />
