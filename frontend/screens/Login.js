@@ -58,8 +58,11 @@ export default function Login({ navigation }) {
     try {
       // Normalize API URL (remove trailing slashes)
       const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = base || 'http://192.168.1.3:3000';
-      const url = `${baseWithFallback}/api/users/login`;
+      const baseWithFallback = base || 'http://192.168.1.21:3000';
+      const hardCode = 'http://192.168.1.14:3000';
+      const url = `${hardCode}/api/users/login`;
+      console.log("FETCH URL =", url);
+
 
       const response = await fetch(url, {
         method: 'POST',

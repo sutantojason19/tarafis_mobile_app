@@ -49,6 +49,9 @@ export default function FooterPagination(props) {
     // Flexible mapping for Submit callback
     onSubmit = props.onSubmit || props.onFinish || props.onConfirm,
 
+    onSave = props.onSave || props.onDraft || props.onTempSave,
+
+
     // Flexible mapping for disabling the Back button
     leftDisabled =
       typeof props.leftDisabled !== "undefined"
@@ -62,6 +65,8 @@ export default function FooterPagination(props) {
   const handleBack = onBack || (() => {});
   const handleNext = onNext || (() => {});
   const handleSubmit = onSubmit || (() => {});
+  const handleSave = onSave || (() => {});
+
 
   return (
     <View style={styles.container}>
@@ -96,13 +101,23 @@ export default function FooterPagination(props) {
           <Text style={styles.nextText}>Next</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity
-          onPress={handleSubmit}
-          style={styles.nextButton}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.nextText}>Submit</Text>
-        </TouchableOpacity>
+        <View style={styles.lastPageGroup}>
+          <TouchableOpacity
+            onPress={handleSave}
+            style={[styles.nextButton, {backgroundColor: '#63bf3c'}]}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.nextText}>Save</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            onPress={handleSubmit}
+            style={styles.nextButton}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.nextText}>Submit</Text>
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
@@ -165,4 +180,16 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
   },
+
+  lastPageGroup: {
+    flexDirection: 'row',
+    flex: 2,             // ← makes Save + Submit take same total space as Back
+    gap: 8
+  },
+
+saveButton: {
+  backgroundColor: '#63bf3c',
+  marginRight: 10,
+},
+
 });

@@ -115,8 +115,24 @@ async function createTechnicianService(req, res) {
     tindakan_koreksi_capa,
   } = req.body;
 
+    const formStatus =
+      req.body.status === 'submitted' ? 'submitted' : 'draft';
+    
+    // Backend validation ONLY for submitted forms
+    if (formStatus === 'submitted') {
+      if (
+        !nama_customer ||
+        !user_id ||
+        !nama_faskes 
+      ) {
+        return res.status(400).json({
+          message: 'Missing required fields for submitted form',
+        });
+      }
+    }
+
   // Minimal validation
-  if (!serial_number) {
+  if (!serial_number && formStatus === 'submitted') {
     return res.status(400).json({ message: 'serial_number is required' });
   }
 
@@ -137,8 +153,8 @@ async function createTechnicianService(req, res) {
         (user_id, product_id, nama_customer, kontak_customer, nama_faskes, tanggal_pengambilan,
          deskripsi_masalah, estimasi_penyelesaian, foto_alat_sebelum_service,
          penyebab_masalah, koreksi, tindakan_koreksi_capa,
-         bukti_koreksi, tindakan_koreksi_img, kuantitas_unit, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+         bukti_koreksi, tindakan_koreksi_img, kuantitas_unit, created_at, updated_at, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)
     `;
 
     const params = [
@@ -157,6 +173,7 @@ async function createTechnicianService(req, res) {
       bukti_koreksi,
       tindakan_koreksi_img,
       kuantitas_unit,
+      formStatus
     ];
 
     await conn.query(insertSql, params);
@@ -201,7 +218,23 @@ async function createTechnicianActivity(req, res) {
     notes
   } = req.body;
 
-  if (!serial_number) {
+  const formStatus = req.body.status === 'submitted' ? 'submitted' : 'draft';
+
+
+   // Backend validation ONLY for submitted forms
+    if (formStatus === 'submitted') {
+      if (
+        !nama_teknisi ||
+        !nama_lokasi ||
+        !alamat_lokasi 
+      ) {
+        return res.status(400).json({
+          message: 'Missing required fields for submitted form',
+        });
+      }
+    }
+
+  if (!serial_number && formStatus === 'submitted') {
     return res.status(400).json({ message: 'serial_number is required' });
   }
 
@@ -219,8 +252,8 @@ async function createTechnicianActivity(req, res) {
       INSERT INTO technician_activities
         (user_id, product_id, tanggal_aktivitas, nama_teknisi, nama_lokasi, alamat_lokasi,
          teknisi_lain, nomor_berita_acara, tujuan_kunjungan, selfie_foto_kegiatan,
-         foto_ba_daftar_hadir, notes, kuantitas_unit, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+         foto_ba_daftar_hadir, notes, kuantitas_unit, created_at, updated_at, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)
     `;
 
     const params = [
@@ -237,6 +270,7 @@ async function createTechnicianActivity(req, res) {
       foto_ba_daftar_hadir,
       notes,
       kuantitas_unit,
+      formStatus
     ];
 
     await conn.query(insertSql, params);
@@ -275,21 +309,59 @@ async function createSalesVisitCustomer(req, res) {
       note_kunjungan,
       nama_user,
       jabatan_user,
-      status_kunjungan
+      status_kunjungan,
     } = req.body;
 
-    // Support both single-file (req.file) and multiple-file (req.files['dokumentasi_kunjungan']) multer setups
+    // Normalize form lifecycle status (DO NOT trust client)
+    const formStatus =
+      req.body.status === 'submitted' ? 'submitted' : 'draft';
+
+    // Backend validation ONLY for submitted forms
+    if (formStatus === 'submitted') {
+      if (
+        !nama_sales ||
+        !region ||
+        !nama_lokasi ||
+        !alamat_lokasi ||
+        !koordinat_lokasi
+      ) {
+        return res.status(400).json({
+          message: 'Missing required fields for submitted form',
+        });
+      }
+    }
+
+    // Handle uploaded file
     let dokumentasi_kunjungan = null;
     if (req.file?.filename) {
       dokumentasi_kunjungan = req.file.filename;
     } else {
-      dokumentasi_kunjungan = getUploadedFilename(req.files, 'dokumentasi_kunjungan');
+      dokumentasi_kunjungan = getUploadedFilename(
+        req.files,
+        'dokumentasi_kunjungan'
+      );
     }
 
-    const sql = `INSERT INTO sales_visits
-      (user_id, form_type, nama_sales, region, nama_lokasi, alamat_lokasi, koordinat_lokasi,
-       tujuan_kunjungan, dokumentasi_kunjungan, note_kunjungan, nama_user, jabatan_user, status_kunjungan)
-      VALUES (?, 'faskes', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const sql = `
+      INSERT INTO sales_visits
+      (
+        user_id,
+        form_type,
+        nama_sales,
+        region,
+        nama_lokasi,
+        alamat_lokasi,
+        koordinat_lokasi,
+        tujuan_kunjungan,
+        dokumentasi_kunjungan,
+        note_kunjungan,
+        nama_user,
+        jabatan_user,
+        status_kunjungan,
+        status
+      )
+      VALUES (?, 'faskes', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
     const params = [
       user_id,
@@ -304,18 +376,28 @@ async function createSalesVisitCustomer(req, res) {
       nama_user,
       jabatan_user,
       status_kunjungan,
+      formStatus, // normalized value only
     ];
 
     const conn = await pool.getConnection();
     await conn.query(sql, params);
     conn.release();
 
-    return res.json({ message: 'Sales Visit (Customer) saved successfully.' });
+    return res.json({
+      message:
+        formStatus === 'draft'
+          ? 'Draft saved successfully.'
+          : 'Sales Visit (Customer) submitted successfully.',
+    });
   } catch (err) {
     console.error('createSalesVisitCustomer error:', err);
-    return res.status(500).json({ message: 'Server error saving sales visit (customer)', error: err.message });
+    return res.status(500).json({
+      message: 'Server error saving sales visit (customer)',
+      error: err.message,
+    });
   }
 }
+
 
 /**
  * Create a sales visit record for non-healthcare customers (non-faskes).
@@ -335,10 +417,26 @@ async function createSalesVisitNonFaskes(req, res) {
     alamat_lokasi,
     koordinat_lokasi,
     tujuan_kunjungan,
-    note_kunjungan
+    note_kunjungan,
   } = req.body;
 
   const dokumentasi_kunjungan = req.file ? req.file.filename : null;
+  const formStatus = req.body.status === 'submitted' ? 'submitted' : 'draft';
+
+  if (formStatus === 'submitted') {
+      if (
+        !nama_sales ||
+        !region ||
+        !nama_lokasi ||
+        !alamat_lokasi ||
+        !koordinat_lokasi
+      ) {
+        return res.status(400).json({
+          message: 'Missing required fields for submitted form',
+        });
+      }
+  }
+
 
   try {
     const conn = await pool.getConnection();
@@ -346,8 +444,8 @@ async function createSalesVisitNonFaskes(req, res) {
     const sql = `
       INSERT INTO sales_visits
       (user_id, form_type, nama_sales, region, nama_lokasi, alamat_lokasi, koordinat_lokasi,
-       tujuan_kunjungan, dokumentasi_kunjungan, note_kunjungan)
-      VALUES (?, 'non-faskes', ?, ?, ?, ?, ?, ?, ?, ?)
+       tujuan_kunjungan, dokumentasi_kunjungan, note_kunjungan, status)
+      VALUES (?, 'non-faskes', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -360,6 +458,7 @@ async function createSalesVisitNonFaskes(req, res) {
       tujuan_kunjungan,
       dokumentasi_kunjungan,
       note_kunjungan,
+      formStatus
     ];
 
     await conn.query(sql, params);

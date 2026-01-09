@@ -78,60 +78,85 @@ export default function CoordinateInput({ onPress, value, target }) {
    * If no  → alerts user with distance info
    */
   const getLocation = async () => {
-    try {
-      // Ensure valid target coordinate was provided
-      if (!target || typeof target.lat !== 'number' || typeof target.lng !== 'number') {
-        Alert.alert('Target coordinate missing', 'No target coordinate provided to check distance.');
-        return;
-      }
-
-      // Request permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission denied', 'Permission to access location was denied');
-        return;
-      }
-
-      // Retrieve GPS location
-      const location = await Location.getCurrentPositionAsync({
-        enableHighAccuracy: true,
-      });
-
-      const userLat = Number(location.coords.latitude);
-      const userLng = Number(location.coords.longitude);
-
-      // Format coordinate string
-      const formatted = `${userLat.toFixed(6)}, ${userLng.toFixed(6)}`;
-
-      // Validate coordinate for UI purposes
-      validateCoordinates(formatted);
-
-      // Calculate distance to the target
-      const distanceKm = haversineDistanceKm(
-        userLat,
-        userLng,
-        target.lat,
-        target.lng
-      );
-
-      const thresholdKm = 1; // required radius
-
-      if (distanceKm <= thresholdKm) {
-        // User is close enough → return coordinate
-        onPress && onPress(formatted);
-      } else {
-        // User is too far → show how far in meters
-        const distanceMeters = Math.round(distanceKm * 1000);
-        Alert.alert(
-          'Move closer',
-          `You are ${distanceMeters} meters away from the hospital. Please move closer (within ${thresholdKm * 1000} m).`
-        );
-      }
-    } catch (err) {
-      console.error('getLocation error', err);
-      Alert.alert('Location error', 'Could not get location. Please try again.');
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'Permission to access location was denied');
+      return;
     }
-  };
+
+    const loc = await Location.getCurrentPositionAsync({
+      enableHighAccuracy: true,
+    });
+
+    const lat = loc.coords.latitude.toFixed(6);
+    const lng = loc.coords.longitude.toFixed(6);
+    const formatted = `${lat}, ${lng}`;
+
+    validateCoordinates(formatted);
+    onPress?.(formatted);
+
+  } catch (err) {
+    console.error('getLocation error', err);
+    Alert.alert('Location error', 'Could not get location. Please try again.');
+  }
+};
+
+  // const getLocation = async () => {
+  //   try {
+  //     // Ensure valid target coordinate was provided
+  //     if (!target || typeof target.lat !== 'number' || typeof target.lng !== 'number') {
+  //       Alert.alert('Target coordinate missing', 'No target coordinate provided to check distance.');
+  //       return;
+  //     }
+
+  //     // Request permission
+  //     const { status } = await Location.requestForegroundPermissionsAsync();
+  //     if (status !== 'granted') {
+  //       Alert.alert('Permission denied', 'Permission to access location was denied');
+  //       return;
+  //     }
+
+  //     // Retrieve GPS location
+  //     const location = await Location.getCurrentPositionAsync({
+  //       enableHighAccuracy: true,
+  //     });
+
+  //     const userLat = Number(location.coords.latitude);
+  //     const userLng = Number(location.coords.longitude);
+
+  //     // Format coordinate string
+  //     const formatted = `${userLat.toFixed(6)}, ${userLng.toFixed(6)}`;
+
+  //     // Validate coordinate for UI purposes
+  //     validateCoordinates(formatted);
+
+  //     // Calculate distance to the target
+  //     const distanceKm = haversineDistanceKm(
+  //       userLat,
+  //       userLng,
+  //       target.lat,
+  //       target.lng
+  //     );
+
+  //     const thresholdKm = 10000; // required radius
+
+  //     if (distanceKm <= thresholdKm) {
+  //       // User is close enough → return coordinate
+  //       onPress && onPress(formatted);
+  //     } else {
+  //       // User is too far → show how far in meters
+  //       const distanceMeters = Math.round(distanceKm * 10000);
+  //       Alert.alert(
+  //         'Move closer',
+  //         `You are ${distanceMeters} meters away from the hospital. Please move closer (within ${thresholdKm * 10000} m).`
+  //       );
+  //     }
+  //   } catch (err) {
+  //     console.error('getLocation error', err);
+  //     Alert.alert('Location error', 'Could not get location. Please try again.');
+  //   }
+  // };
 
   return (
     <View style={styles.container}>

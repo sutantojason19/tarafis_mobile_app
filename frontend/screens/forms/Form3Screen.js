@@ -73,12 +73,14 @@ export default function Form3screen({ navigation }) {
   const [tekLain, setTekLain] = useState("");
   const [prodName, setProdName] = useState("");
   const [tipeProd, setTipeProd] = useState("");
-  const [kuantitas, setKuantitas] = useState("");
+  const [kuantitas, setKuantitas] = useState(null);
   const [merkProd, setMerk] = useState("");
   const [beritaAcara, setBerita] = useState("");
   const [fotoKegiatan, setFotoKegiatan] = useState("");
   const [fotoBa, setFotoBA] = useState("");
   const [prodExist, setProdExist] = useState(false);
+  const [isDraft, setIsDraft] = useState(false);
+  
 
 
   /**
@@ -117,9 +119,6 @@ export default function Form3screen({ navigation }) {
     }
   };
 
-
-
-
   /**
    * Keyboard listeners — hide bottom bar when typing
    */
@@ -145,7 +144,7 @@ export default function Form3screen({ navigation }) {
   /**
    * handleSubmit() — Submit final form to backend
    */
-  const handleSubmit = async () => {
+  const handleSubmit = async ({isDraft}) => {
     try {
       const userId = await AsyncStorage.getItem("user_id");
 
@@ -154,21 +153,51 @@ export default function Form3screen({ navigation }) {
       const qtyToSend   = kuantitas?.label ?? kuantitas ?? "";
       const hospitalName = hospital?.value ?? hospital ?? "";
 
+      // 1. Define all fields in one place
+      const formFields = [
+        { key: 'user_id', value: userId, label: 'User' },
+        { key: 'tanggal_aktivitas', value: tgl_aktivitas, label: 'Tanggal Aktivitas' },
+        { key: 'nama_teknisi', value: nameToSend, label: 'Nama Teknisi' },
+        { key: 'nama_lokasi', value: hospitalName, label: 'Nama Lokasi' },
+        { key: 'alamat_lokasi', value: lokasi, label: 'Alamat Lokasi' },
+        { key: 'teknisi_lain', value: otherTech, label: 'Teknisi Lain' },
+        { key: 'nama_produk', value: prodName, label: 'Nama Produk' },
+        { key: 'tipe_produk', value: tipeProd, label: 'Tipe Produk' },
+        { key: 'serial_number', value: serialNumber, label: 'Serial Number' },
+        { key: 'kuantitas_unit', value: qtyToSend, label: 'Kuantitas Unit' },
+        { key: 'merk_produk', value: merkProd, label: 'Merk Produk' },
+        { key: 'nomor_berita_acara', value: beritaAcara, label: 'Nomor Berita Acara' },
+        { key: 'tujuan_kunjungan', value: visitPurpose, label: 'Tujuan Kunjungan' },
+        { key: 'notes', value: notes, label: 'Catatan' },
+      ];
+
+      if(isDraft && kuantitas === '' || kuantitas === null){
+          alert(
+            'Mohon isi kuantitas unit.'
+          );   
+      }
+
+      // 2. Validate only if not draft
+      if (!isDraft) {
+        const missing = formFields.filter(
+          f => f.value == null || f.value === '' || f.value === 0
+        );
+
+        if (missing.length > 0) {
+          alert(
+            `Tolong isi:\n${missing
+              .map(f => `• ${f.label}`)
+              .join('\n')}`
+          );
+          return;
+        }
+      }
+
+      // 3. Build FormData after validation
       const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('tanggal_aktivitas', tgl_aktivitas);
-      formData.append('nama_teknisi', nameToSend);
-      formData.append('nama_lokasi', hospitalName);
-      formData.append('alamat_lokasi', lokasi);
-      formData.append('teknisi_lain', otherTech);
-      formData.append('nama_produk', prodName);
-      formData.append('tipe_produk', tipeProd);
-      formData.append('serial_number', serialNumber);
-      formData.append('kuantitas_unit', qtyToSend);
-      formData.append('merk_produk', merkProd);
-      formData.append('nomor_berita_acara', beritaAcara);
-      formData.append('tujuan_kunjungan', visitPurpose);
-      formData.append('notes', notes);
+      formFields.forEach(f => {
+        formData.append(f.key, f.value ?? '');
+      });
 
       if (fotoKegiatan?.uri) {
         formData.append('selfie_foto_kegiatan', {
@@ -187,7 +216,8 @@ export default function Form3screen({ navigation }) {
       }
 
       const base = (API_URL || "").replace(/\/+$/, "");
-      const url = `${base}/api/forms/tech-activity`;
+      const demoURL = 'http://192.168.1.14:3000';
+      const url = `${demoURL}/api/forms/tech-activity`;
 
       await axios.post(url, formData);
       alert("Form submitted successfully!");
@@ -197,6 +227,9 @@ export default function Form3screen({ navigation }) {
       alert("Failed to submit form. Please try again.");
     }
   };
+
+  const onSubmit = () => handleSubmit({ isDraft: false });
+  const onSave = () => handleSubmit({ isDraft: true });
 
   /** Footer visibility logic */
   const showBottomBar = !keyboardVisible && !dropdownOpen;
@@ -240,12 +273,8 @@ export default function Form3screen({ navigation }) {
                 onSelect={setTechnicianName}
               />
 
-              <SearchBar
-                value={hospital}
-                title="Nama Lokasi"
-                onDropdownOpenChange={setDropdownOpen}
-                onPress={setHospital}
-              />
+              <InputBox value={hospital} title="Nama Lokasi" onChangeText={hospital} />
+
 
               <InputBox value={lokasi} title="Alamat Lokasi" onChangeText={setLokasi} />
 
@@ -323,7 +352,8 @@ export default function Form3screen({ navigation }) {
             leftDisabled={leftDisabled}
             onLeftPress={goBack}
             onRightPress={handleRightPress}
-            onSubmit={handleSubmit}
+            onSubmit={onSubmit}
+            onSave={onSave}
             rightTitle={rightTitle}
           />
         </View>
@@ -333,7 +363,6 @@ export default function Form3screen({ navigation }) {
 }
 
 /* -------------------------- STYLES -------------------------- */
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f5f7fb" },
   scrollContainer: {

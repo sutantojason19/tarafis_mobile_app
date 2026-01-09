@@ -1,27 +1,12 @@
-/**
- * MenuTabs.js
- * -----------
- * Main dashboard screen that serves as the landing page after login.
- *
- * Responsibilities:
- * - Load the logged-in user's role (position) from AsyncStorage
- * - Conditionally render quick-action cards based on role:
- *    • Sales → Sales forms only
- *    • Technician → Technician forms only
- * - Fetch all created forms for the user from the backend
- * - Display created forms in a scrollable list
- * - Support pull-to-refresh and empty/loading states
- */
-
 import { useState, useEffect } from 'react';
-import API_BASE from '../config/api';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  FlatList,
+  ScrollView,
+  RefreshControl,
   Alert,
   ActivityIndicator,
 } from 'react-native';
@@ -36,13 +21,11 @@ import { API_URL } from '@env';
 /* ------------------------------------------------------------------
  * Layout constants
  * ------------------------------------------------------------------ */
-
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = width * 0.42;
 
 /**
  * Color mapping for different form types.
- * Used when rendering TaskCard components.
  */
 const FORM_TYPE_COLORS = {
   technician_service: '#22C55E',
@@ -51,14 +34,6 @@ const FORM_TYPE_COLORS = {
   faskes: '#FCA5A5',
 };
 
-/**
- * getIconName(formType)
- * --------------------
- * Maps backend form_type values to FontAwesome icon names.
- *
- * @param {string} formType
- * @returns {string} icon name
- */
 const getIconName = (formType) => {
   switch (formType) {
     case 'technician_service':
@@ -74,15 +49,6 @@ const getIconName = (formType) => {
   }
 };
 
-/**
- * formatAnyDate(d)
- * ----------------
- * Normalizes multiple possible date formats into YYYY-MM-DD.
- * Safely handles Date objects, ISO strings, and SQL timestamps.
- *
- * @param {Date|string|null} d
- * @returns {string|null}
- */
 const formatAnyDate = (d) => {
   if (!d && d !== 0) return null;
   if (d instanceof Date) return d.toISOString().slice(0, 10);
@@ -97,14 +63,6 @@ const formatAnyDate = (d) => {
   return null;
 };
 
-/**
- * getCardTitle(formType)
- * ---------------------
- * Converts backend form_type values into human-readable titles.
- *
- * @param {string} formType
- * @returns {string}
- */
 const getCardTitle = (formType) => {
   switch (formType) {
     case 'technician_service':
@@ -120,67 +78,95 @@ const getCardTitle = (formType) => {
   }
 };
 
+/** -------------------------------------------------------------
+ * Remove duplicates by form_type+id
+ * ------------------------------------------------------------- */
+const dedupeById = (arr) => {
+  const map = new Map();
+  arr.forEach(item => {
+    const key = `${item.form_type}-${item.id}`;
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values());
+};
+
 /* ------------------------------------------------------------------
  * Component
  * ------------------------------------------------------------------ */
 
 export default function MenuTabs({ navigation }) {
-  /** List of all fetched forms (merged from multiple endpoints) */
   const [formList, setFormList] = useState([]);
-
-  /** Loading indicator for initial fetch */
+  const [filteredFormList, setFilteredFormList] = useState([]);
   const [loading, setLoading] = useState(false);
-
-  /** Pull-to-refresh loading state */
   const [refreshing, setRefreshing] = useState(false);
 
-  /**
-   * User position / role.
-   * Expected values:
-   *  - 'sales'
-   *  - 'technician'
-   */
+  const [filters, setFilters] = useState({
+    formTypes: [],
+    dateFrom: null,
+    dateTo: null,
+  });
+
   const [position, setPosition] = useState(null);
 
-  /* ------------------------------------------------------------------
-   * Load user position (role) from AsyncStorage
-   * ------------------------------------------------------------------ */
   useEffect(() => {
     const loadPosition = async () => {
       try {
         const storedPosition = await AsyncStorage.getItem('position');
-        if (storedPosition) {
-          setPosition(storedPosition);
-        }
+        if (storedPosition) setPosition(storedPosition);
       } catch (e) {
         console.error('Failed to load position', e);
       }
     };
-
     loadPosition();
   }, []);
 
-  /**
-   * ensureArray(value)
-   * ------------------
-   * Normalizes backend responses so we always work with arrays.
-   *
-   * @param {any} v
-   * @returns {Array}
-   */
   const ensureArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 
-  /**
-   * getAllForms(userId)
-   * ------------------
-   * Fetches all form types for the given user from the backend
-   * and normalizes them into arrays.
-   *
-   * @param {string|number} userId
-   * @returns {Promise<Object>}
-   */
+  const applyClientFilters = () => {
+    let result = [...formList];
+
+    if (filters.formTypes.length > 0) {
+      result = result.filter(item =>
+        filters.formTypes.includes(item.form_type)
+      );
+    }
+
+    if (filters.dateFrom || filters.dateTo) {
+      const from = filters.dateFrom
+        ? new Date(filters.dateFrom).setHours(0, 0, 0, 0)
+        : null;
+
+      const to = filters.dateTo
+        ? new Date(filters.dateTo).setHours(23, 59, 59, 999)
+        : null;
+
+      result = result.filter(item => {
+        const rawDate =
+          item.tanggal_aktivitas ||
+          item.tanggal_pengambilan ||
+          item.created_at;
+
+        const normalized = formatAnyDate(rawDate);
+        if (!normalized) return false;
+
+        const itemTime = new Date(normalized).getTime();
+        if (from && itemTime < from) return false;
+        if (to && itemTime > to) return false;
+
+        return true;
+      });
+    }
+
+    setFilteredFormList(result);
+  };
+
+  useEffect(() => {
+    applyClientFilters();
+  }, [filters, formList]);
+
   const getAllForms = async (userId) => {
-    const url = `${API_BASE}/api/forms/all`;
+    const hardCode = 'http://192.168.1.14:3000';
+    const url = `${hardCode}/api/forms/all`;
     const resp = await axios.get(url, { params: { user_id: userId } });
 
     return {
@@ -190,14 +176,6 @@ export default function MenuTabs({ navigation }) {
     };
   };
 
-  /**
-   * load()
-   * ------
-   * Main data loader:
-   * - Reads user_id from AsyncStorage
-   * - Fetches all forms
-   * - Merges them into a single list for display
-   */
   const load = async () => {
     try {
       setLoading(true);
@@ -210,7 +188,10 @@ export default function MenuTabs({ navigation }) {
         ...result.technician_services,
       ].filter(Boolean);
 
-      setFormList(merged);
+      const deduped = dedupeById(merged);
+
+      setFormList(deduped);
+      setFilteredFormList(deduped);
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to load forms');
       setFormList([]);
@@ -219,35 +200,21 @@ export default function MenuTabs({ navigation }) {
     }
   };
 
-  /** Load data once on component mount */
   useEffect(() => {
     load();
   }, []);
 
-  /**
-   * onRefresh()
-   * -----------
-   * Pull-to-refresh handler for FlatList
-   */
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
   };
 
-  /**
-   * renderEmpty()
-   * -------------
-   * Renders empty or loading state for the task list.
-   */
   const renderEmpty = () => {
     if (loading) return <ActivityIndicator style={{ marginTop: 20 }} />;
     return <Text style={{ marginTop: 12, color: '#6B7280' }}>No tasks created yet.</Text>;
   };
 
-  /* ------------------------------------------------------------------
-   * Guard: wait until user position is loaded
-   * ------------------------------------------------------------------ */
   if (!position) {
     return (
       <View style={styles.container}>
@@ -255,6 +222,10 @@ export default function MenuTabs({ navigation }) {
       </View>
     );
   }
+
+  /** Compute Items */
+  const draftItems = filteredFormList.filter(i => i.status === 'draft');
+  const submittedItems = filteredFormList.filter(i => i.status === 'submitted');
 
   /* ------------------------------------------------------------------
    * Render
@@ -264,8 +235,8 @@ export default function MenuTabs({ navigation }) {
       <Header title={'Tasks'} navigation={navigation} />
 
       <View style={styles.content}>
+        {/* TOP BUTTONS */}
         <View style={styles.row}>
-          {/* LEFT COLUMN */}
           <View style={styles.column}>
             {position?.toLowerCase() === 'sales' && (
               <TouchableOpacity onPress={() => navigation.navigate('Form1')}>
@@ -286,7 +257,6 @@ export default function MenuTabs({ navigation }) {
             )}
           </View>
 
-          {/* RIGHT COLUMN */}
           <View style={styles.column}>
             {position?.toLowerCase() === 'sales' && (
               <TouchableOpacity onPress={() => navigation.navigate('Form2')}>
@@ -308,35 +278,72 @@ export default function MenuTabs({ navigation }) {
           </View>
         </View>
 
-        <Text style={styles.header2}>Created Tasks</Text>
+        {/* LIST SCROLL VIEW */}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          {/* DRAFTS */}
+          <Text style={styles.header2}>Drafts</Text>
+          {draftItems.length === 0 && renderEmpty()}
+          {draftItems.map(item => (
+            <View key={`${item.form_type}-${item.id}`} style={{ marginVertical: 8 }}>
+              <TaskCard
+                title={getCardTitle(item.form_type)}
+                iconName={getIconName(item.form_type)}
+                date={
+                  formatAnyDate(item.tanggal_aktivitas) ||
+                  formatAnyDate(item.tanggal_pengambilan) ||
+                  formatAnyDate(item.created_at)
+                }
+                formTypeColor={FORM_TYPE_COLORS[item.form_type]}
+                onEdit={() => navigation.navigate('CardInfo', { data: item })}
+              />
+            </View>
+          ))}
 
-        <FlatList
-          data={formList}
-          keyExtractor={(item) => `${item.form_type}-${item.id}`}
-          ListEmptyComponent={renderEmpty}
-          renderItem={({ item }) => (
-            <TaskCard
-              title={getCardTitle(item.form_type)}
-              iconName={getIconName(item.form_type)}
-              date={
-                formatAnyDate(item.tanggal_aktivitas) ||
-                formatAnyDate(item.tanggal_pengambilan) ||
-                formatAnyDate(item.created_at)
+          {/* CREATED TASKS */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 35 }}>
+            <Text style={styles.header2}>Created Tasks</Text>
+            <TouchableOpacity
+              style={{ marginTop: 25 }}
+              onPress={() =>
+                navigation.navigate('FilterScreen', {
+                  initialFilters: filters,
+                  onApply: (newFilters) => setFilters(newFilters),
+                })
               }
-              formTypeColor={FORM_TYPE_COLORS[item.form_type]}
-              onEdit={() => navigation.navigate('CardInfo', { data: item })}
-            />
-          )}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-        />
+            >
+              <FontAwesome5 name="sort-amount-down" size={32} color="black" />
+            </TouchableOpacity>
+          </View>
+
+          {submittedItems.length === 0 && renderEmpty()}
+          {submittedItems.map(item => (
+            <View key={`${item.form_type}-${item.id}`} style={{ marginVertical: 8 }}>
+              <TaskCard
+                title={getCardTitle(item.form_type)}
+                iconName={getIconName(item.form_type)}
+                date={
+                  formatAnyDate(item.tanggal_aktivitas) ||
+                  formatAnyDate(item.tanggal_pengambilan) ||
+                  formatAnyDate(item.created_at)
+                }
+                formTypeColor={FORM_TYPE_COLORS[item.form_type]}
+                onEdit={() => navigation.navigate('CardInfo', { data: item })}
+              />
+            </View>
+          ))}
+        </ScrollView>
       </View>
     </View>
   );
 }
 
-/* ------------------------------------------------------------------
- * Styles
+/* ------------------------------------------------------------------ *
+ * Styles                                                             *
  * ------------------------------------------------------------------ */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
@@ -353,5 +360,5 @@ const styles = StyleSheet.create({
   largeCard: { height: 200 },
   smallCard: { height: 130 },
   cardTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginTop: 12 },
-  header2: { fontSize: 18, fontWeight: 'bold', marginTop: 25 },
+  header2: { fontSize: 20, fontWeight: 'bold', marginTop: 25 },
 });

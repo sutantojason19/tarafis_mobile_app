@@ -25,7 +25,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, ActivityIndicator, Button, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import FormHeader from '../../components/FormHeader';
 import InputBox from '../../components/InputBox';
@@ -35,7 +35,7 @@ import MultiSelectCheckbox from '../../components/MultiselectCheckbox';
 import CameraInput from '../../components/CameraInput';
 import Footer from '../../components/Footer';
 import SearchBar from '../../components/SearchBar';
-import { nama_sales, regions, jabatan, status_kunjungan } from "../../data/appData";
+import { nama_sales, regions, jabatan, status_kunjungan, jumlah_user } from "../../data/appData";
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@env';
@@ -60,8 +60,6 @@ export default function Form1Screen({ navigation }) {
   const [region, setRegion] = useState('');             // selected region (string)
   const [lokasi, setLokasi] = useState('');             // selected hospital name (string)
   const [alamat, setAlamat] = useState('');             // address text
-  const [namaUser, setNamaUser] = useState('');         // name of user/contact
-  const [jabat, setJabatan] = useState('');             // user's position / jabatan
   const [status, setStatus] = useState('');             // visit status
   const [note, setNote] = useState('');                 // notes about visit
   const [dokumentasi, setDok] = useState('');           // image asset (CameraInput)
@@ -71,6 +69,13 @@ export default function Form1Screen({ navigation }) {
   const [loading, setLoading] = useState(false);        // loading state for hospital lookup
   const [error, setError] = useState(null);             // error message for hospital lookup
   const [hospitals, setHospitals] = useState([]);       // retrieved hospital list (normalized)
+  const [jumlahUser, setJumlahUser] = useState('1');
+  const [users, setUsers] = useState([
+  { nama: '', jabatan: '' }
+  ]);
+  const [saving, setSaving] = useState(false);          // save the  
+  const [isDraft, setDraft] = useState(false);
+
 
   /* -------------------------
    * Caching and cancellation helpers
@@ -132,6 +137,29 @@ export default function Form1Screen({ navigation }) {
     };
   }, []);
 
+  const onJumlahUserSelect = (value) => {
+    const count = Number(value);
+
+    setJumlahUser(count.toString());
+
+    setUsers(prev => {
+      const copy = [...prev];
+
+      if (copy.length < count) {
+        // add empty users
+        while (copy.length < count) {
+          copy.push({ nama: '', jabatan: '' });
+        }
+      } else {
+        // trim extra users
+        copy.length = count;
+      }
+
+      return copy;
+    });
+  };
+
+
   /* -------------------------
    * onSelectRegion(selectReg)
    * - Fetch hospitals for a given region
@@ -158,7 +186,10 @@ export default function Form1Screen({ navigation }) {
     setLoading(true);
     try {
       // Normalize API_URL and construct endpoint
-      const url = `${API_URL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
+      const demoURL = 'http://192.168.1.14:3000';
+
+
+      const url = `${demoURL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
 
       // axios GET with AbortController signal and a 10s timeout (optional)
       const resp = await axios.get(url, {
@@ -205,30 +236,80 @@ export default function Form1Screen({ navigation }) {
    * - Uses API_URL (trim trailing slashes); includes fallback for local debugging
    * - Alerts user on success/failure; re-throws error for callers if needed
    * ------------------------- */
-  const onSubmit = async () => {
-    // Normalize API_URL (remove trailing slash) and fallback to a local host if missing
-    const base = (typeof API_URL === 'string' ? API_URL.trim().replace(/\/+$/g, '') : '') || 'http://192.168.1.29:3000';
-    const url = `${base}/api/forms/customer`;
+  const submitForm = async ({ isDraft }) => {
+    // Normalize API URL
+    const base =
+      (typeof API_URL === 'string'
+        ? API_URL.trim().replace(/\/+$/g, '')
+        : '') || 'http://192.168.1.21:3000';
 
+    const demoURL = 'http://192.168.1.14:3000';
+    const url = `${demoURL}/api/forms/customer`;
+
+    // -------------------------
+    //  Normalize fields FIRST
+    // -------------------------
+    const nameToSend = namaSales?.value ?? namaSales ?? '';
+    const regionToSend = region?.value ?? region ?? '';
+    const lokasiToSend = lokasi?.label ?? '';
+    const alamatToSend = alamat ?? '';
+    const coordsToSend = coords ?? '';
+
+    // -------------------------
+    // Draft validation (minimal)
+    // -------------------------
+    if (isDraft && !nameToSend) {
+      alert('Nama Sales is required to save a draft');
+      return;
+    }
+
+    // -------------------------
+    // Submit validation (strict)
+    // -------------------------
+    if (!isDraft) {
+      const requiredFields = [
+        { key: nameToSend, label: 'Nama Sales' },
+        { key: regionToSend, label: 'Region' },
+        { key: lokasiToSend, label: 'Lokasi' },
+        { key: alamatToSend, label: 'Alamat' },
+        { key: coordsToSend, label: 'Koordinat' },
+        { key: selected, label: 'Tujuan Kunjungan'},
+        { key: note, label: 'Note Kunjungan'},
+        { key: dokumentasi, label: 'Dokumentasi Kunjungan'},
+        { key: users?.length, label: 'Nama dan Jabatan User ' },
+        { key: status, label: ' ' },
+
+      ];
+
+      const missing = requiredFields.filter(
+        f => f.key === null || f.key === undefined || f.key === '' || f.key === 0
+      );
+
+      if (missing.length > 0) {
+        alert(
+          `Please complete required fields:\n${missing
+            .map(f => `• ${f.label}`)
+            .join('\n')}`
+        );
+        return;
+      }
+    }
+
+    // -------------------------
+    // Submit to API
+    // -------------------------
     try {
-      // Retrieve user_id from AsyncStorage (replace with auth state in production)
       const userId = await AsyncStorage.getItem('user_id');
 
-      // Normalize fields (support both {label, value} objects and simple strings)
-      const nameToSend = namaSales?.value ?? namaSales ?? '';
-      const regionToSend = region?.value ?? region ?? '';
-      const lokasiToSend = lokasi?.label ?? '';
-
-      // Build multipart/form-data payload
       const formData = new FormData();
       formData.append('user_id', userId);
       formData.append('nama_sales', nameToSend);
       formData.append('region', regionToSend);
       formData.append('nama_lokasi', lokasiToSend);
-      formData.append('alamat_lokasi', alamat);
-      formData.append('koordinat_lokasi', coords);
+      formData.append('alamat_lokasi', alamatToSend);
+      formData.append('koordinat_lokasi', coordsToSend);
 
-      // Combine selected visit purposes + any "other" text into a comma-separated string
+      // Combine tujuan kunjungan
       const allSelected = [...selected];
       if (other?.trim()) {
         allSelected.push({
@@ -237,18 +318,16 @@ export default function Form1Screen({ navigation }) {
         });
       }
 
-      const values = allSelected.map(item =>
-        typeof item === 'string' ? item : item?.value ?? ''
-      );
-      const tujuanKunjunganString = values.join(',');
+      const tujuanKunjunganString = allSelected
+        .map(item => (typeof item === 'string' ? item : item?.value ?? ''))
+        .join(',');
 
       formData.append('tujuan_kunjungan', tujuanKunjunganString);
-      formData.append('note_kunjungan', note);
-      formData.append('nama_user', namaUser);
-      formData.append('jabatan_user', jabat);
+      formData.append('note_kunjungan', note ?? '');
+      formData.append('users', JSON.stringify(users ?? []));
       formData.append('status_kunjungan', status);
 
-      // If documentation image exists (picked via CameraInput), append it to FormData
+      // Optional image
       if (dokumentasi?.uri) {
         formData.append('dokumentasi_kunjungan', {
           uri: dokumentasi.uri,
@@ -257,21 +336,28 @@ export default function Form1Screen({ navigation }) {
         });
       }
 
-      // Send multipart POST
       const response = await axios.post(url, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      // Notify user on success
-      alert('Form submitted successfully!');
+      isDraft ? formData.append('status', 'draft') : formData.append('status', 'submitted')
+
+      alert(isDraft ? 'Draft saved successfully!' : 'Form submitted successfully!');
       return response.data;
     } catch (error) {
-      // Log and notify user of failure, then rethrow so callers can react
-      console.error('Upload failed:', error.response?.data ?? error.message ?? error);
+      console.error(
+        'Upload failed:',
+        error.response?.data ?? error.message ?? error
+      );
       alert('Failed to submit form. Please try again.');
       throw error;
     }
   };
+
+
+  const onSubmit = () => submitForm({ isDraft: false });
+  const onSave = () => submitForm({ isDraft: true });
+
 
   /* -------------------------
    * Render
@@ -300,7 +386,7 @@ export default function Form1Screen({ navigation }) {
 
           {/* Region dropdown triggers fetching hospitals */}
           <DropdownPicker value={region} title="Region" options={regions} onSelect={onSelectRegion} />
-
+          
           {/* Loading indicator and error text for hospital lookups */}
           {loading && (
             <View style={styles.spinner}>
@@ -318,8 +404,43 @@ export default function Form1Screen({ navigation }) {
 
           {/* Address and user/contact information */}
           <InputBox value={alamat} title="Alamat Lokasi" onChangeText={setAlamat} />
-          <InputBox value={namaUser} title="Nama User" onChangeText={setNamaUser} />
-          <DropdownPicker value={jabat} title="Jabatan User" options={jabatan} onSelect={setJabatan} />
+
+          <DropdownPicker
+            value={jumlahUser}
+            title="Jumlah User"
+            options={jumlah_user}
+            onSelect={onJumlahUserSelect}
+          />
+
+          {users.map((user, index) => (
+            <View key={index}>
+              <InputBox
+                value={user.nama}
+                title={`Nama User ${index + 1}`}
+                onChangeText={(text) => {
+                  setUsers(prev => {
+                    const copy = [...prev];
+                    copy[index] = { ...copy[index], nama: text };
+                    return copy;
+                  });
+                }}
+              />
+
+              <DropdownPicker
+                value={user.jabatan}
+                title={`Jabatan User ${index + 1}`}
+                options={jabatan}
+                onSelect={(value) => {
+                  setUsers(prev => {
+                    const copy = [...prev];
+                    copy[index] = { ...copy[index], jabatan: value };
+                    return copy;
+                  });
+                }}
+              />
+            </View>
+          ))}
+
 
           {/* Purpose multi-select */}
           <MultiSelectCheckbox value={selected} title="Tujuan Kunjungan" options={options} selected={selected} onChange={setSelected} otherValue={other} onOtherChange={setOther} />
@@ -339,8 +460,18 @@ export default function Form1Screen({ navigation }) {
 
       {/* Footer submit: only visible when keyboard and dropdown are closed */}
       {!keyboardVisible && !dropdownOpen && (
-        <View style={{ paddingBottom: 20 }}>
+        <View style={{ paddingBottom: 20, flexDirection:'row', alignItems:'center' }}>
           <Footer mode="footer" title="Submit" onPress={onSubmit} />
+          <TouchableOpacity
+            onPress={onSave}
+            style={styles.saveBtn}
+            disabled={saving}
+          >
+            {saving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.saveText}>Save</Text>
+            }
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -368,4 +499,15 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginTop: 8,
   },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    marginHorizontal: 8,
+    borderRadius: 30,
+    alignItems: 'center',
+    backgroundColor: '#63bf3c',
+    justifyContent: 'center',
+    height: 55,
+  },
+  saveText: { color: '#fff', fontWeight: '700', fontSize: 18 },
 });

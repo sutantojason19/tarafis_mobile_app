@@ -26,6 +26,7 @@ import Form2Screen from './forms/Form2Screen';
 import Form3Screen from './forms/Form3Screen';
 import Form4Screen from './forms/Form4Screen';
 import CardInfo from '../components/CardInfo';
+import FilterScreen from '../components/FilterScreen';
 
 const Stack = createStackNavigator();
 
@@ -43,6 +44,8 @@ export default function AppNavigator() {
 
       {/* Detailed form viewer / editor */}
       <Stack.Screen name="CardInfo" component={CardInfo} />
+      <Stack.Screen name="FilterScreen" component={FilterScreen} />
+
     </Stack.Navigator>
   );
 }

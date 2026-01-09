@@ -83,12 +83,13 @@ export default function Footer({ mode = 'footer', title, onPress }) {
             style={{
               width: 180,
               height: 55,
-              borderRadius: 15,
+              borderRadius: 30,
               justifyContent: 'center',
               alignItems: 'center',
               borderWidth: 1.5,
               borderColor: 'rgba(255,255,255,0.4)',
               flexDirection: 'row',
+              marginLeft: 20
             }}
           >
             <Text

@@ -22,7 +22,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import FormHeader from '../../components/FormHeader';
 import InputBox from '../../components/InputBox';
@@ -59,6 +59,9 @@ export default function Form2Screen({ navigation }) {
   const [hospitals, setHospitals] = useState([]);   // fetched hospitals
   const [loading, setLoading] = useState(false);    // loading state for hospital lookup
   const [error, setError] = useState(null);         // error message for hospital lookup
+  const [isDraft, setIsDraft] = useState(false);
+  const [saving, setSaving] = useState(false);          // save the  
+  
 
   /* -------------------------
    * Caching + cancellation refs
@@ -96,54 +99,58 @@ export default function Form2Screen({ navigation }) {
    * Region selection: fetch hospitals (with caching + cancellation)
    * ------------------------- */
   const onSelectRegion = async (selectReg) => {
+    // Normalize region key for cache
+    const key = String(selectReg).toLowerCase();
+
+    // If same region is selected again, do nothing
+    if (region && region.toLowerCase() === key) return;
+
     setRegion(selectReg);
     setError(null);
+    setHospitals([]);  // reset stale data immediately
 
-    // Use cached response if present
-    if (cacheRef.current.has(selectReg)) {
-      setHospitals(cacheRef.current.get(selectReg));
+    // Use cached list if available
+    if (cacheRef.current.has(key)) {
+      setHospitals(cacheRef.current.get(key));
       return;
     }
 
-    // Abort any previous request to avoid races
+    // Abort previous request safely
     if (controllerRef.current) {
       controllerRef.current.abort();
+      controllerRef.current = null;
     }
     const controller = new AbortController();
     controllerRef.current = controller;
 
     setLoading(true);
     try {
-      const url = `${API_URL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
+      const demoURL = 'http://192.168.1.14:3000';
+      const url = `${demoURL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
 
       const resp = await axios.get(url, {
         signal: controller.signal,
-        timeout: 10000, // 10s optional timeout
+        timeout: 10000,
       });
 
       const hospitalsRaw = Array.isArray(resp.data?.retrieved_hospitals)
         ? resp.data.retrieved_hospitals
         : [];
 
-      // Normalize rows into consistent shape
       const normalized = hospitalsRaw.map(h => ({
         hospital_id: Number(h.hospital_id),
         region: h.region || '',
         name: h.name || '',
         street: h.street || '',
-        latitude: h.latitude != null && h.latitude !== '' ? Number(h.latitude) : null,
-        longitude: h.longitude != null && h.longitude !== '' ? Number(h.longitude) : null,
+        latitude: h.latitude ? Number(h.latitude) : null,
+        longitude: h.longitude ? Number(h.longitude) : null,
       }));
 
-      // Cache and set state
-      cacheRef.current.set(selectReg, normalized);
+      cacheRef.current.set(key, normalized);
       setHospitals(normalized);
-
-      // Informational alert (you can remove in production)
-      // alert('Successfully added hospital list');
     } catch (err) {
-      // Ignore cancellation errors (user changed region quickly)
       if (axios.isCancel?.(err) || err.name === 'CanceledError') {
+        console.log('Fetch aborted, ignoring...');
         return;
       }
       console.error('fetch error', err);
@@ -155,18 +162,57 @@ export default function Form2Screen({ navigation }) {
     }
   };
 
+
   /* -------------------------
    * Form submit handler
    * - Builds FormData and posts to `/api/forms/customer`
    * - Normalizes API_URL to avoid double-slash issues
    * ------------------------- */
-  const onSubmit = async () => {
+  const submitForm = async ({isDraft}) => {
     try {
       // Normalize API_URL (remove trailing slashes)
       const base = (typeof API_URL === 'string' ? API_URL.trim().replace(/\/+$/g, '') : '');
       // Optional fallback for local debugging (adjust or remove as desired)
-      const host = base || 'http://192.168.1.20:3000';
-      const url = `${host}/api/forms/customer`;
+      const host = base || 'http://192.168.1.21:3000';
+      const demoURL = 'http://192.168.1.14:3000';
+      const url = `${demoURL}/api/forms/non-faskes`;
+
+      // -------------------------
+      // Draft validation (minimal)
+      // -------------------------
+      if (isDraft && !namaSales) {
+        alert('Nama Sales is required to save a draft');
+        return;
+      }
+
+      // -------------------------
+      // Submit validation (strict)
+      // -------------------------
+      if (!isDraft) {
+        const requiredFields = [
+          { key: nameToSend, label: 'Nama Sales' },
+          { key: regionToSend, label: 'Region' },
+          { key: lokasiToSend, label: 'Lokasi' },
+          { key: alamatToSend, label: 'Alamat' },
+          { key: coordsToSend, label: 'Koordinat' },
+          { key: selected, label: 'Tujuan Kunjungan'},
+          { key: note, label: 'Note Kunjungan'},
+          { key: dokumentasi, label: 'Dokumentasi Kunjungan'},
+        ];
+
+        const missing = requiredFields.filter(
+          f => f.key === null || f.key === undefined || f.key === '' || f.key === 0
+        );
+
+        if (missing.length > 0) {
+          alert(
+            `Please complete required fields:\n${missing
+              .map(f => `• ${f.label}`)
+              .join('\n')}`
+          );
+          return;
+        }
+      }
 
       // Read user id from storage (replace with auth state in production)
       const userId = await AsyncStorage.getItem('user_id');
@@ -174,7 +220,7 @@ export default function Form2Screen({ navigation }) {
       const nameToSend = namaSales?.value ?? namaSales ?? '';
       const regionToSend = region?.value ?? region ?? '';
       const lokasiToSend = lokasi?.label ?? '';
-
+      console.log('nama sales: ', namaSales)
       const formData = new FormData();
       formData.append('user_id', userId);
       formData.append('nama_sales', nameToSend);
@@ -193,6 +239,8 @@ export default function Form2Screen({ navigation }) {
         });
       }
 
+      isDraft ? formData.append('status', 'draft') : formData.append('status', 'submitted')
+
       // Let axios set the Content-Type (including boundary) automatically
       const response = await axios.post(url, formData);
 
@@ -205,6 +253,9 @@ export default function Form2Screen({ navigation }) {
       throw error;
     }
   };
+
+  const onSubmit = () => submitForm({ isDraft: false });
+  const onSave = () => submitForm({ isDraft: true });
 
   /* -------------------------
    * Keyboard visibility listeners
@@ -240,7 +291,16 @@ export default function Form2Screen({ navigation }) {
         >
           {/* Form inputs composed from small reusable components */}
           <DropdownPicker value={namaSales} title="Nama Sales" options={nama_sales} onSelect={setNamaSales} />
-          <DropdownPicker value={region} title="Region" options={regions} onSelect={onSelectRegion} />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <DropdownPicker
+              value={region}
+              title="Region"
+              options={regions}
+              onSelect={onSelectRegion}
+            />
+            {loading && <ActivityIndicator style={{ marginLeft: 8 }} />}
+          </View>
+
           <SearchBar value={lokasi} title="Nama Lokasi" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
           <InputBox value={alamat} title="Alamat Lokasi" onChangeText={setAlamat} />
           <CoordinateInput value={coords} onPress={setCoords} />
@@ -253,9 +313,19 @@ export default function Form2Screen({ navigation }) {
 
       {/* Footer submit button: only visible when keyboard and dropdown are closed */}
       {!keyboardVisible && !dropdownOpen && (
-        <View style={{ paddingBottom: 20 }}>
-          <Footer mode="footer" title="Submit" onPress={onSubmit} />
-        </View>
+          <View style={{ paddingBottom: 20, flexDirection:'row', alignItems:'center' }}>
+            <Footer mode="footer" title="Submit" onPress={onSubmit} />
+            <TouchableOpacity
+              onPress={onSave}
+              style={styles.saveBtn}
+              disabled={saving}
+            >
+              {saving
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.saveText}>Save</Text>
+              }
+            </TouchableOpacity>
+          </View>
       )}
     </View>
   );
@@ -267,4 +337,15 @@ export default function Form2Screen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   formContent: { flex: 1 },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    marginHorizontal: 8,
+    borderRadius: 30,
+    alignItems: 'center',
+    backgroundColor: '#63bf3c',
+    justifyContent: 'center',
+    height: 55,
+  },
+  saveText: { color: '#fff', fontWeight: '700', fontSize: 18 },
 });

@@ -114,7 +114,42 @@ export default function CardInfo(props) {
       .join(' ');
 
   // Set of keys to hide when null/empty (used to reduce clutter)
-  const SKIP_IF_NULL = useMemo(() => new Set(['nama_user', 'jabatan_user', 'status_kunjungan']), []);
+  const SKIP_IF_NULL = useMemo(() =>
+    new Set(['nama_user', 'jabatan_user', 'users_json', 'status_kunjungan']),
+  []);
+
+  const renderUsersField = (users) => {
+    if (!Array.isArray(users) || users.length === 0) return null;
+
+    return (
+      <View style={styles.row}>
+        <Text style={styles.label}>User yang Dikunjungi</Text>
+
+        {users.map((u, i) => (
+          <View
+            key={i}
+            style={{
+              backgroundColor: '#FBFBFC',
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 8,
+              borderWidth: 1,
+              borderColor: '#EEF2F6',
+            }}
+          >
+            <Text style={{ fontWeight: '600', color: '#111827' }}>
+              {i + 1}. {u.nama || '-'}
+            </Text>
+            <Text style={{ color: '#6B7280', marginTop: 4 }}>
+              Jabatan: {u.jabatan || '-'}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+
 
   // Compute keys to render and their order:
   // - Prioritize commonly important fields using `priority` array
@@ -390,7 +425,11 @@ export default function CardInfo(props) {
         if (protectedCols.has(k)) continue;
         if (typeof v === 'undefined') continue;
 
-        updates[k] = v instanceof Date ? v.toISOString() : v;
+        if (k === 'users_json' && typeof v !== 'string') {
+          updates[k] = JSON.stringify(v);
+        } else {
+          updates[k] = v instanceof Date ? v.toISOString() : v;
+        }
       }
 
       // Nothing changed? notify parent and return
@@ -464,20 +503,81 @@ export default function CardInfo(props) {
   const buildHtmlForPdf = (obj) => {
     const rows = Object.keys(obj)
       .map((k) => {
-        const v = obj[k] && obj[k].__new ? '(new image)' : obj[k] ?? '';
-        return `<tr><td style="padding:8px;border:1px solid #ddd;font-weight:600;">${titleCase(k)}</td><td style="padding:8px;border:1px solid #ddd;">${String(
-          v
-        )}</td></tr>`;
+        let displayValue = '';
+
+        // --- Special case: users_json (array of users) ---
+        if (k === 'users_json') {
+          try {
+            const users =
+              typeof obj[k] === 'string'
+                ? JSON.parse(obj[k])
+                : obj[k];
+
+            if (Array.isArray(users) && users.length > 0) {
+              displayValue = users
+                .map(
+                  (u, i) =>
+                    `${i + 1}. ${u.nama || '-'} (${u.jabatan || '-'})`
+                )
+                .join('<br/>');
+            } else {
+              displayValue = '-';
+            }
+          } catch (e) {
+            displayValue = '-';
+          }
+        }
+
+        // --- New image placeholder ---
+        else if (obj[k] && typeof obj[k] === 'object' && obj[k].__new) {
+          displayValue = '(new image)';
+        }
+
+        // --- Arrays (fallback) ---
+        else if (Array.isArray(obj[k])) {
+          displayValue = obj[k].join(', ');
+        }
+
+        // --- Objects (fallback) ---
+        else if (typeof obj[k] === 'object' && obj[k] !== null) {
+          try {
+            displayValue = JSON.stringify(obj[k]);
+          } catch {
+            displayValue = String(obj[k]);
+          }
+        }
+
+        // --- Primitives ---
+        else {
+          displayValue = obj[k] ?? '';
+        }
+
+        return `
+          <tr>
+            <td style="padding:8px;border:1px solid #ddd;font-weight:600;vertical-align:top;">
+              ${titleCase(k)}
+            </td>
+            <td style="padding:8px;border:1px solid #ddd;">
+              ${String(displayValue)}
+            </td>
+          </tr>
+        `;
       })
       .join('');
+
     return `
       <html>
-        <head><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </head>
         <body style="font-family: Arial, sans-serif; padding:20px;">
           <h2>Form Export — ${obj.form_type} — ID: ${obj.id ?? ''}</h2>
-          <table style="border-collapse: collapse; width:100%;">${rows}</table>
+          <table style="border-collapse: collapse; width:100%;">
+            ${rows}
+          </table>
         </body>
-      </html>`;
+      </html>
+    `;
   };
 
   const handleDownload = async () => {
@@ -543,7 +643,16 @@ export default function CardInfo(props) {
             <Text style={styles.headerType}>{local.form_type}</Text>
           </View>
 
+          {/* Render users separately */}
+          {local.users_json && renderUsersField(
+            typeof local.users_json === 'string'
+              ? JSON.parse(local.users_json)
+              : local.users_json
+          )}
+
+          {/* Render all other fields */}
           {safeKeys.map((k) => renderField(k))}
+
 
           <View style={styles.buttonRow}>
             <TouchableOpacity onPress={handleDownload} style={styles.downloadBtn} disabled={saving}>

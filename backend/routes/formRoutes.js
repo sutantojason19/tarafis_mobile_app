@@ -234,8 +234,6 @@ router.get('/products/by-serial/:serial_number', async (req, res) => {
   }
 });
 
-
-
 /* ---------------------------------------------------------------------------
  * GET /hospital/:region
  * Returns hospitals for a given region (case-insensitive match)

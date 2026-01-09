@@ -51,7 +51,7 @@ export default function Form4screen({ navigation }) {
   const [serialNum, setSerialNum] = useState("");
   const [prodName, setProdName] = useState("");
   const [merkProd, setMerk] = useState("");
-  const [kuantitas, setKuantitas] = useState("");
+  const [kuantitas, setKuantitas] = useState(null);
   const [namaCust, setNamaCust] = useState("");
   const [kontakCust, setKontak] = useState("");
   const [estimasi, setEstimasi] = useState("");
@@ -64,6 +64,7 @@ export default function Form4screen({ navigation }) {
   const [fotoCapa, setFotoCapa] = useState("");
   const [deskMas, setDesMas] = useState("");
   const [prodExist, setProdExist] = useState(false);
+  const [isDraft, setIsDraft] = useState(false);
   
 
   // Convert Date -> YYYY-MM-DD
@@ -98,7 +99,7 @@ export default function Form4screen({ navigation }) {
    * - Uses axios to POST multipart/form-data.
    * Throws on failure after showing an alert.
    */
-  const handleSubmit = async () => {
+  const handleSubmit = async ({isDraft}) => {
     // Normalize API base URL and validate
     const getBaseUrl = () => {
       if (typeof API_URL !== 'string' || !API_URL.trim()) {
@@ -119,28 +120,74 @@ export default function Form4screen({ navigation }) {
 
     try {
       const base = getBaseUrl();
-      const url = `${base}/api/forms/tech-service`;
+      const demoURL = 'http://192.168.1.14:3000';
+      const url = `${demoURL}/api/forms/tech-service`;
 
       const userId = await AsyncStorage.getItem('user_id');
       const kuantitasToSend = kuantitas?.value ?? kuantitas ?? '';
       const lokasiToSend = lokasi?.label ?? '';
 
+       const requiredFields = [
+          {key: 'user_id', value: userId, label: 'User ID'},
+          { key: 'nama_customer', value: namaCust, label: 'Nama Customer' },
+          { key: 'nama_faskes', value: lokasiToSend, label: 'Nama Lokasi' },
+          { key: 'tanggal_pengambilan', value: tgl, label: 'Tanggal Pengambilan' },
+          { key: 'nama_produk', value: prodName, label: 'Nama Produk' },
+          { key: 'tipe_produk', value: productType, label: 'Tipe Produk' },
+          { key: 'serial_number', value: serialNum, label: 'Serial Number' },
+          { key: 'kuantitas_unit', value: kuantitasToSend, label: 'Kuantitas Unit' },
+          { key: 'kontak_customer', value: kontakCust, label: 'Kontak Customer' },
+          { key: 'merk_produk', value: merkProd, label: 'Merk Produk' },
+          { key: 'deskripsi_masalah', value: deskMas, label: 'Deskripsi Masalah' },
+          { key: 'estimasi_penyelesaian', value: estimasi, label: 'Estimasi Penyelesaian' },
+          { key: 'penyebab_masalah', value: masalah, label: 'Penyebab Masalah' },
+          { key: 'koreksi', value: koreksi, label: 'Koreksi' },
+          { key: 'tindakan_koreksi_capa', value: Capa, label: 'Tindakan Koreksi CAPA' },
+        ];
+      
+      if(isDraft && kuantitas === '' || kuantitas === null){
+          alert(
+            'Mohon isi kuantitas unit.'
+          );   
+      }
+
+
+      if (!isDraft) {
+
+        const missing = requiredFields.filter(
+          f => f.value === null || f.value === undefined || f.value === '' || f.value === 0
+        );
+
+        if (missing.length > 0) {
+          alert(
+            `Please complete required fields:\n${missing
+              .map(f => `• ${f.label}`)
+              .join('\n')}`
+          );
+          return;
+        }
+      }
+
       const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('nama_customer', namaCust ?? '');
-      formData.append('nama_faskes', lokasiToSend);
-      formData.append('tanggal_pengambilan', tgl ?? '');
-      formData.append('nama_produk', prodName ?? '');
-      formData.append('tipe_produk', productType ?? '');
-      formData.append('serial_number', serialNum ?? '');
-      formData.append('kuantitas_unit', kuantitasToSend);
-      formData.append('merk_produk', merkProd ?? '');
-      formData.append('deskripsi_masalah', deskMas ?? '');
-      formData.append('estimasi_penyelesaian', estimasi ?? '');
-      formData.append('penyebab_masalah', masalah ?? '');
-      formData.append('koreksi', koreksi ?? '');
-      formData.append('tindakan_koreksi_capa', Capa ?? '');
-      formData.append('kontak_customer', kontakCust ?? '');
+      requiredFields.forEach(f => {
+        formData.append(f.key, f.value ?? '');
+      });
+
+      // formData.append('user_id', userId);
+      // formData.append('nama_customer', namaCust ?? '');
+      // formData.append('nama_faskes', lokasiToSend);
+      // formData.append('tanggal_pengambilan', tgl ?? '');
+      // formData.append('nama_produk', prodName ?? '');
+      // formData.append('tipe_produk', productType ?? '');
+      // formData.append('serial_number', serialNum ?? '');
+      // formData.append('kuantitas_unit', kuantitasToSend);
+      // formData.append('merk_produk', merkProd ?? '');
+      // formData.append('deskripsi_masalah', deskMas ?? '');
+      // formData.append('estimasi_penyelesaian', estimasi ?? '');
+      // formData.append('penyebab_masalah', masalah ?? '');
+      // formData.append('koreksi', koreksi ?? '');
+      // formData.append('tindakan_koreksi_capa', Capa ?? '');
+      // formData.append('kontak_customer', kontakCust ?? '');
 
       appendImageIfExists(formData, 'tindakan_koreksi_img', fotoCapa);
       appendImageIfExists(formData, 'foto_alat_sebelum_service', fotoAlat);
@@ -159,6 +206,9 @@ export default function Form4screen({ navigation }) {
       throw err;
     }
   };
+
+  const onSubmit = () => handleSubmit({ isDraft: false });
+  const onSave = () => handleSubmit({ isDraft: true });
 
   const onSerialBlur = async (e) => {
     const serial = e?.nativeEvent?.text;
@@ -248,7 +298,7 @@ export default function Form4screen({ navigation }) {
             <View style={styles.pageInner}>
               <InputBox value={namaCust} title="Nama Customer" onChangeText={setNamaCust} />
               <InputBox value={kontakCust} title="Kontak Customer (No. Telp / Email)" onChangeText={setKontak} />
-              <SearchBar value={lokasi} title="Nama Faskes" onDropdownOpenChange={setDropdownOpen} onPress={setLokasi} />
+              <InputBox value={lokasi} title="Nama Faskes" onChangeText={setLokasi} />
               <Text style={[styles.label, { marginTop: 10 }]}>Tanggal Pengambilan/Penerimaan Alat</Text>
               <DatePicker value={tgl} title="Tanggal Pengambilan/Penerimaan Alat" onConfirm={setDate} />
             </View>
@@ -277,9 +327,10 @@ export default function Form4screen({ navigation }) {
             onLeftPress={goBack}
             onRightPress={handleRightPress}
             leftDisabled={leftDisabled}
+            onSave = {onSave}
             onSubmit={() => {
               // fallback: call submit directly
-              handleSubmit();
+              onSubmit
             }}
           />
         </View>
