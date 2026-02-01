@@ -23,7 +23,10 @@ const pool = require('../db');
 const jwt = require('jsonwebtoken');
 
 // Read JWT config from env; do not commit secrets to repo
-const JWT_SECRET = process.env.JWT_SECRET || 'replace_this_with_a_strong_secret';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is not set');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 /**
@@ -88,7 +91,19 @@ async function verifyPassword(candidatePassword, storedPassword) {
  * POST /login
  * Authenticate user and return JWT token + basic user info.
  */
-router.post('/login', async (req, res) => {
+const rateLimit = require('express-rate-limit');
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 menit
+  max: 10, // max 10 login attempt
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Too many login attempts. Please try again later.'
+  }
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   let conn;
 
@@ -106,7 +121,7 @@ router.post('/login', async (req, res) => {
 
     if (!rows || rows.length === 0) {
       // Do not reveal whether email exists in production (to avoid user enumeration).
-      return res.status(400).json({ message: 'User not found' });
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     const user = rows[0];
@@ -114,7 +129,7 @@ router.post('/login', async (req, res) => {
     // Verify password (supports bcrypt if available)
     const passwordOk = await verifyPassword(password, user.password);
     if (!passwordOk) {
-      return res.status(401).json({ message: 'Incorrect password' });
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     // Build minimal token payload. Keep it small to avoid leaking sensitive data.
