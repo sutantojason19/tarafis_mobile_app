@@ -30,7 +30,7 @@ const COLUMN_WIDTH = width * 0.42;
 const FORM_TYPE_COLORS = {
   technician_service: '#22C55E',
   technician_activity: '#3B82F6',
-  'non-faskes': '#7C3AED',
+  'sales': '#7C3AED',
   faskes: '#FCA5A5',
 };
 
@@ -40,7 +40,7 @@ const getIconName = (formType) => {
       return 'tools';
     case 'technician_activity':
       return 'chalkboard-teacher';
-    case 'non-faskes':
+    case 'sales':
       return 'briefcase';
     case 'faskes':
       return 'hospital';
@@ -69,7 +69,7 @@ const getCardTitle = (formType) => {
       return 'Technician Service';
     case 'technician_activity':
       return 'Technician Activity';
-    case 'non-faskes':
+    case 'sales':
       return 'Sales Visit Non Faskes';
     case 'faskes':
       return 'Sales Visit Customer';
@@ -84,7 +84,7 @@ const getCardTitle = (formType) => {
 const dedupeById = (arr) => {
   const map = new Map();
   arr.forEach(item => {
-    const key = `${item.form_type}-${item.id}`;
+    const key = `${item.visit_type}-${item.id}`;
     if (!map.has(key)) map.set(key, item);
   });
   return Array.from(map.values());
@@ -111,7 +111,7 @@ export default function MenuTabs({ navigation }) {
   useEffect(() => {
     const loadPosition = async () => {
       try {
-        const storedPosition = await AsyncStorage.getItem('position');
+        const storedPosition = await AsyncStorage.getItem('role');
         if (storedPosition) setPosition(storedPosition);
       } catch (e) {
         console.error('Failed to load position', e);
@@ -127,7 +127,7 @@ export default function MenuTabs({ navigation }) {
 
     if (filters.formTypes.length > 0) {
       result = result.filter(item =>
-        filters.formTypes.includes(item.form_type)
+        filters.formTypes.includes(item.visit_type)
       );
     }
 
@@ -142,8 +142,7 @@ export default function MenuTabs({ navigation }) {
 
       result = result.filter(item => {
         const rawDate =
-          item.tanggal_aktivitas ||
-          item.tanggal_pengambilan ||
+          item.visited_at ||
           item.created_at;
 
         const normalized = formatAnyDate(rawDate);
@@ -165,36 +164,84 @@ export default function MenuTabs({ navigation }) {
   }, [filters, formList]);
 
   const getAllForms = async (userId) => {
-    const hardCode = 'http://192.168.1.14:3000';
-    const url = `${hardCode}/api/forms/all`;
-    const resp = await axios.get(url, { params: { user_id: userId } });
+    const hardCode = 'http://192.168.1.11:3000';
+    const url = `${hardCode}/api/visits/`;
+
+    const token = await AsyncStorage.getItem('token');
+
+    const resp = await axios.get(url, {
+      params: {
+        user_id: userId,
+      },
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
     return {
-      sales_visits: ensureArray(resp.data.sales_visits),
-      technician_activities: ensureArray(resp.data.technician_activities),
-      technician_services: ensureArray(resp.data.technician_services),
+      visits: ensureArray(resp.data),
     };
+  };
+
+
+  const editClick = async (editData) => {
+    try {
+      const baseUrl = 'http://192.168.1.11:3000';
+      const token = await AsyncStorage.getItem('token');
+      
+      const endpointMap = {
+        sales: 'sales',
+        technician_activity: 'activity',
+        technician_service: 'service',
+      };
+
+      const endpoint = endpointMap[editData.visit_type];
+
+      if (!endpoint) {
+        throw new Error(`Unknown visit_type: ${editData.visit_type}`);
+      }
+
+      const url = `${baseUrl}/api/visits/${endpoint}/${editData.id}`;
+      console.log(editData.id)
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const mergedData = {
+        ...editData,
+        ...response.data,
+      };
+
+      navigation.navigate('CardInfo', { data: mergedData });
+
+    } catch (error) {
+      console.error('editClick error:', error?.response?.data || error.message);
+    }
   };
 
   const load = async () => {
     try {
       setLoading(true);
-      const userId = await AsyncStorage.getItem('user_id');
-      const result = await getAllForms(userId);
 
-      const merged = [
-        ...result.sales_visits,
-        ...result.technician_activities,
-        ...result.technician_services,
-      ].filter(Boolean);
+      const userIdStr = await AsyncStorage.getItem('user_id');
+      if (!userIdStr) throw new Error('Missing user_id. Please login again.');
 
+      const { visits } = await getAllForms(userIdStr);
+
+
+      const merged = (visits || []).filter(Boolean);
       const deduped = dedupeById(merged);
 
       setFormList(deduped);
       setFilteredFormList(deduped);
+
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to load forms');
+      Alert.alert('Error', err?.message || 'Failed to load forms');
       setFormList([]);
+      setFilteredFormList([]); // keep these consistent
     } finally {
       setLoading(false);
     }
@@ -203,6 +250,9 @@ export default function MenuTabs({ navigation }) {
   useEffect(() => {
     load();
   }, []);
+
+  const draftItems = filteredFormList.filter(i => Number(i.is_draft) === 1);
+  const submittedItems = filteredFormList.filter(i => Number(i.is_draft) === 0);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -222,11 +272,7 @@ export default function MenuTabs({ navigation }) {
       </View>
     );
   }
-
-  /** Compute Items */
-  const draftItems = filteredFormList.filter(i => i.status === 'draft');
-  const submittedItems = filteredFormList.filter(i => i.status === 'submitted');
-
+  
   /* ------------------------------------------------------------------
    * Render
    * ------------------------------------------------------------------ */
@@ -238,7 +284,7 @@ export default function MenuTabs({ navigation }) {
         {/* TOP BUTTONS */}
         <View style={styles.row}>
           <View style={styles.column}>
-            {position?.toLowerCase() === 'sales' && (
+            {position?.toLowerCase() === 'sales' || position?.toLowerCase() === 'admin'  && (
               <TouchableOpacity onPress={() => navigation.navigate('Form1')}>
                 <View style={[styles.card, styles.largeCard, { backgroundColor: '#FCA5A5' }]}>
                   <MaterialCommunityIcons name="hospital-building" size={48} color="#fff" />
@@ -247,7 +293,7 @@ export default function MenuTabs({ navigation }) {
               </TouchableOpacity>
             )}
 
-            {position?.toLowerCase() === 'technician' && (
+            {position?.toLowerCase() === 'technician' || position?.toLowerCase() === 'admin'  && (
               <TouchableOpacity onPress={() => navigation.navigate('Form3')}>
                 <LinearGradient colors={['#60A5FA', '#3B82F6']} style={[styles.card, styles.smallCard]}>
                   <FontAwesome5 name="chalkboard-teacher" size={38} color="#fff" />
@@ -258,7 +304,7 @@ export default function MenuTabs({ navigation }) {
           </View>
 
           <View style={styles.column}>
-            {position?.toLowerCase() === 'sales' && (
+            {position?.toLowerCase() === 'sales' || position?.toLowerCase() === 'admin'  && (
               <TouchableOpacity onPress={() => navigation.navigate('Form2')}>
                 <LinearGradient colors={['#A78BFA', '#7C3AED']} style={[styles.card, styles.smallCard]}>
                   <FontAwesome5 name="briefcase" size={38} color="#fff" />
@@ -267,7 +313,7 @@ export default function MenuTabs({ navigation }) {
               </TouchableOpacity>
             )}
 
-            {position?.toLowerCase() === 'technician' && (
+            {position?.toLowerCase() === 'technician' || position?.toLowerCase() === 'admin'  && (
               <TouchableOpacity onPress={() => navigation.navigate('Form4')}>
                 <View style={[styles.card, styles.largeCard, { backgroundColor: '#86EFAC' }]}>
                   <FontAwesome5 name="tools" size={38} color="#fff" />
@@ -289,17 +335,15 @@ export default function MenuTabs({ navigation }) {
           <Text style={styles.header2}>Drafts</Text>
           {draftItems.length === 0 && renderEmpty()}
           {draftItems.map(item => (
-            <View key={`${item.form_type}-${item.id}`} style={{ marginVertical: 8 }}>
+            <View key={`${item.visit_type}-${item.id}`} style={{ marginVertical: 8 }}>
               <TaskCard
-                title={getCardTitle(item.form_type)}
-                iconName={getIconName(item.form_type)}
+                title={getCardTitle(item.visit_type)}
+                iconName={getIconName(item.visit_type)}
                 date={
-                  formatAnyDate(item.tanggal_aktivitas) ||
-                  formatAnyDate(item.tanggal_pengambilan) ||
-                  formatAnyDate(item.created_at)
+                  formatAnyDate(item.visited_at) 
                 }
-                formTypeColor={FORM_TYPE_COLORS[item.form_type]}
-                onEdit={() => navigation.navigate('CardInfo', { data: item })}
+                formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
+                onEdit={() => editClick(item)}
               />
             </View>
           ))}
@@ -321,21 +365,19 @@ export default function MenuTabs({ navigation }) {
           </View>
 
           {submittedItems.length === 0 && renderEmpty()}
-          {submittedItems.map(item => (
-            <View key={`${item.form_type}-${item.id}`} style={{ marginVertical: 8 }}>
-              <TaskCard
-                title={getCardTitle(item.form_type)}
-                iconName={getIconName(item.form_type)}
-                date={
-                  formatAnyDate(item.tanggal_aktivitas) ||
-                  formatAnyDate(item.tanggal_pengambilan) ||
-                  formatAnyDate(item.created_at)
-                }
-                formTypeColor={FORM_TYPE_COLORS[item.form_type]}
-                onEdit={() => navigation.navigate('CardInfo', { data: item })}
-              />
-            </View>
-          ))}
+          {submittedItems.map(item => {
+            return (
+              <View key={`${item.visit_type}-${item.id}`} style={{ marginVertical: 8 }}>
+                <TaskCard
+                  title={getCardTitle(item.visit_type)}
+                  iconName={getIconName(item.visit_type)}
+                  date={formatAnyDate(item.visited_at)}
+                  formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
+                  onEdit={() => editClick(item)}
+                />
+              </View>
+            );
+          })}
         </ScrollView>
       </View>
     </View>

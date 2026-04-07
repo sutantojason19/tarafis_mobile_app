@@ -23,7 +23,6 @@
  *  - Ensure `API_URL` is defined in your environment for production builds.
  *  - axios is used for HTTP calls to benefit from cancellation and uniform error handling.
  */
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, ActivityIndicator, Button, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -73,9 +72,8 @@ export default function Form1Screen({ navigation }) {
   const [users, setUsers] = useState([
   { nama: '', jabatan: '' }
   ]);
-  const [saving, setSaving] = useState(false);          // save the  
-  const [isDraft, setDraft] = useState(false);
-
+  const [saving, setSaving] = useState(false);        
+  const [isDraft, setDraft] = useState(false);         
 
   /* -------------------------
    * Caching and cancellation helpers
@@ -167,6 +165,7 @@ export default function Form1Screen({ navigation }) {
    * - Cancel previous inflight request when selecting a new region
    * ------------------------- */
   const onSelectRegion = async (selectReg) => {
+
     setRegion(selectReg);
     setError(null);
 
@@ -186,13 +185,15 @@ export default function Form1Screen({ navigation }) {
     setLoading(true);
     try {
       // Normalize API_URL and construct endpoint
-      const demoURL = 'http://192.168.1.14:3000';
+      const demoURL = 'http://192.168.1.12:3000';
 
-
-      const url = `${demoURL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
+      const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
+      const token = await AsyncStorage.getItem('token');
+      console.log(url)
 
       // axios GET with AbortController signal and a 10s timeout (optional)
       const resp = await axios.get(url, {
+        headers: buildAuthHeaders(token),
         signal: controller.signal,
         timeout: 10000,
       });
@@ -229,131 +230,203 @@ export default function Form1Screen({ navigation }) {
     }
   };
 
-  /* -------------------------
-   * onSubmit()
-   * - Build FormData, including optional image (dokumentasi)
-   * - POST to `/api/forms/customer`
-   * - Uses API_URL (trim trailing slashes); includes fallback for local debugging
-   * - Alerts user on success/failure; re-throws error for callers if needed
-   * ------------------------- */
-  const submitForm = async ({ isDraft }) => {
-    // Normalize API URL
-    const base =
-      (typeof API_URL === 'string'
-        ? API_URL.trim().replace(/\/+$/g, '')
-        : '') || 'http://192.168.1.21:3000';
+  // URL builders (single source of truth)
+  const getVisitsUrl = (baseUrl) => `${baseUrl}/api/visits`;
+  const getSalesUrl = (baseUrl, visitId) => `${baseUrl}/api/visits/${visitId}/sales`;
 
-    const demoURL = 'http://192.168.1.14:3000';
-    const url = `${demoURL}/api/forms/customer`;
+  // Helper to check empty string 
+  const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
-    // -------------------------
-    //  Normalize fields FIRST
-    // -------------------------
-    const nameToSend = namaSales?.value ?? namaSales ?? '';
-    const regionToSend = region?.value ?? region ?? '';
-    const lokasiToSend = lokasi?.label ?? '';
-    const alamatToSend = alamat ?? '';
-    const coordsToSend = coords ?? '';
+  //Parse lat and longitude
+  const parseCoords = (coordsStr) => {
+    if (!isNonEmptyString(coordsStr)) return null;
 
-    // -------------------------
-    // Draft validation (minimal)
-    // -------------------------
-    if (isDraft && !nameToSend) {
-      alert('Nama Sales is required to save a draft');
-      return;
-    }
+    // allow "lat,lng" or "lat, lng"
+    const parts = coordsStr.split(",").map((s) => s.trim());
+    if (parts.length !== 2) return null;
 
-    // -------------------------
-    // Submit validation (strict)
-    // -------------------------
-    if (!isDraft) {
-      const requiredFields = [
-        { key: nameToSend, label: 'Nama Sales' },
-        { key: regionToSend, label: 'Region' },
-        { key: lokasiToSend, label: 'Lokasi' },
-        { key: alamatToSend, label: 'Alamat' },
-        { key: coordsToSend, label: 'Koordinat' },
-        { key: selected, label: 'Tujuan Kunjungan'},
-        { key: note, label: 'Note Kunjungan'},
-        { key: dokumentasi, label: 'Dokumentasi Kunjungan'},
-        { key: users?.length, label: 'Nama dan Jabatan User ' },
-        { key: status, label: ' ' },
+    const lat = Number(parts[0]);
+    const lng = Number(parts[1]);
 
-      ];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
 
-      const missing = requiredFields.filter(
-        f => f.key === null || f.key === undefined || f.key === '' || f.key === 0
-      );
+    return { lat, lng };
+  };
+  
+  // helper for function headers
+  const buildAuthHeaders = (token) => ({
+    Authorization: `Bearer ${token}`,
+  });
 
-      if (missing.length > 0) {
-        alert(
-          `Please complete required fields:\n${missing
-            .map(f => `• ${f.label}`)
-            .join('\n')}`
-        );
-        return;
-      }
-    }
+  const uploadImageToS3 = async (image) => {
+    if (!image || !image.uri) return null;
 
-    // -------------------------
-    // Submit to API
-    // -------------------------
     try {
-      const userId = await AsyncStorage.getItem('user_id');
+      const baseUrl = "http://192.168.1.12:3000";
 
-      const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('nama_sales', nameToSend);
-      formData.append('region', regionToSend);
-      formData.append('nama_lokasi', lokasiToSend);
-      formData.append('alamat_lokasi', alamatToSend);
-      formData.append('koordinat_lokasi', coordsToSend);
-
-      // Combine tujuan kunjungan
-      const allSelected = [...selected];
-      if (other?.trim()) {
-        allSelected.push({
-          label: other.trim(),
-          value: other.trim().toLowerCase(),
-        });
-      }
-
-      const tujuanKunjunganString = allSelected
-        .map(item => (typeof item === 'string' ? item : item?.value ?? ''))
-        .join(',');
-
-      formData.append('tujuan_kunjungan', tujuanKunjunganString);
-      formData.append('note_kunjungan', note ?? '');
-      formData.append('users', JSON.stringify(users ?? []));
-      formData.append('status_kunjungan', status);
-
-      // Optional image
-      if (dokumentasi?.uri) {
-        formData.append('dokumentasi_kunjungan', {
-          uri: dokumentasi.uri,
-          name: dokumentasi.fileName || 'photo.jpg',
-          type: dokumentasi.type || 'image/jpeg',
-        });
-      }
-
-      const response = await axios.post(url, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      // Step 1: ask backend for presigned URL
+      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+        fileName: image.fileName || "photo.jpg",
+        contentType: image.type || "image/jpeg",
       });
 
-      isDraft ? formData.append('status', 'draft') : formData.append('status', 'submitted')
+      const { uploadUrl, key } = presignRes.data;
 
-      alert(isDraft ? 'Draft saved successfully!' : 'Form submitted successfully!');
-      return response.data;
-    } catch (error) {
-      console.error(
-        'Upload failed:',
-        error.response?.data ?? error.message ?? error
-      );
-      alert('Failed to submit form. Please try again.');
-      throw error;
+      // Step 2: upload file directly to S3
+      await axios.put(uploadUrl, {
+        uri: image.uri,
+        type: image.type || "image/jpeg",
+        name: image.fileName || "photo.jpg",
+      }, {
+        headers: {
+          "Content-Type": image.type || "image/jpeg",
+        },
+      });
+
+      // Step 3: return S3 key
+      return key;
+
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      throw new Error("Image upload failed");
     }
   };
 
+  /* -------------------------
+    * submitForm()
+    * - Validates draft vs final
+    * - Creates visit header -> gets visitId
+    * - Creates sales detail
+    * ------------------------- */
+  const submitForm = async ({ isDraft }) => {
+    const baseUrl = "http://192.168.1.12:3000";
+
+    const norm = (v) => (v?.value ?? v?.label ?? v ?? "").toString().trim();
+    const fail = (msg) => {
+      alert(msg);
+      return null;
+    };
+
+    try {
+      // --- Auth
+      const [userIdRaw, token] = await Promise.all([
+        AsyncStorage.getItem("user_id"),
+        AsyncStorage.getItem("token"),
+      ]);
+
+      const userId = Number(userIdRaw);
+      if (!userIdRaw || Number.isNaN(userId)) return fail("Missing/invalid user_id.");
+      if (!token) return fail("Missing token.");
+
+      // --- Normalize
+      const nameToSend = norm(namaSales);
+      const regionToSend = norm(region);
+      const lokasiToSend = norm(lokasi);
+      const alamatToSend = norm(alamat);
+      const coordsToSend = norm(coords);
+      const tujuanToSend = norm(selected);
+      const noteToSend = norm(note);
+      const statusToSend = norm(status);
+
+      if (!isDraft) {
+        const missing = [];
+
+        if (!isNonEmptyString(nameToSend)) missing.push("Nama Sales");
+        if (!isNonEmptyString(regionToSend)) missing.push("Region");
+        if (!isNonEmptyString(lokasiToSend)) missing.push("Lokasi");
+        if (!isNonEmptyString(alamatToSend)) missing.push("Alamat");
+        if (!isNonEmptyString(coordsToSend)) missing.push("Koordinat");
+        if (!isNonEmptyString(tujuanToSend)) missing.push("Tujuan Kunjungan");
+        if (!isNonEmptyString(noteToSend)) missing.push("Note Kunjungan");
+        if (!users || users.length === 0) missing.push("Nama & Jabatan User");
+        if (!isNonEmptyString(statusToSend)) missing.push("Status Kunjungan");
+
+        if (missing.length) {
+          alert(`Please complete required fields:\n${missing.map((m) => `• ${m}`).join("\n")}`);
+          return;
+        }
+      }
+
+      let parsed = { lat: null, lng: null };
+
+      if (!isDraft) {
+        parsed = parseCoords(coordsToSend);
+        if (!parsed) {
+          return fail('Koordinat invalid. Format: "-6.214620, 106.845130"');
+        }
+      }
+
+      const axiosCfg = {
+        headers: buildAuthHeaders(token),
+        timeout: 20000,
+      };
+
+      const draftToSend = isDraft ? 1 : 0;
+
+      let dokumentasiKey = null;
+
+      if (dokumentasi && dokumentasi.uri) {
+        dokumentasiKey = await uploadImageToS3(dokumentasi);
+      }
+
+      const visitPayload = {
+        user_id: userId,
+        customer_id: 1,
+        visited_at: new Date().toISOString(),
+        latitude: parsed.lat != null ? String(parsed.lat) : null,
+        longitude: parsed.lng != null ? String(parsed.lng) : null,
+        visit_type: "sales",
+        note: noteToSend,
+        is_draft: draftToSend,
+        sales_category: "healthcare",
+      };
+
+      const visitRes = await axios.post(getVisitsUrl(baseUrl), visitPayload, axiosCfg);
+
+      const visitId =
+        visitRes?.data?.visit_id ??
+        visitRes?.data?.id ??
+        visitRes?.data?.data?.id;
+
+      if (!visitId) {
+        console.error("Bad visit response:", visitRes?.data);
+        return fail("Visit created but no ID returned.");
+      }
+
+      const salesPayload = {
+        visit_form_type: "healthcare",
+        region: regionToSend,
+        location_name: lokasiToSend,
+        location_address: alamatToSend,
+        visit_purpose: tujuanToSend,
+        visit_status: statusToSend,
+        sales_name: nameToSend,
+        customer_contacts: users,
+        visit_documentation: dokumentasiKey,
+        is_draft: draftToSend,
+      };
+
+      await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
+
+      alert(isDraft ? "Draft saved!" : "Submitted successfully!");
+
+    } catch (err) {
+      const status = err?.response?.status;
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Unknown error";
+
+      console.error("submitForm error:", { status, msg });
+
+      if (status === 401) return alert("Session expired.");
+      if (status === 422) return alert(`Validation failed: ${msg}`);
+
+      alert(`Submit failed: ${msg}`);
+      }
+    };
 
   const onSubmit = () => submitForm({ isDraft: false });
   const onSave = () => submitForm({ isDraft: true });
