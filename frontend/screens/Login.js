@@ -56,7 +56,7 @@ export default function Login({ navigation }) {
  const onLogin = async () => {
     try {
       const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = 'http://192.168.1.4:3000';
+      const baseWithFallback = 'http://192.168.1.93:3000';
       const url = `${baseWithFallback}/api/auth/login`;
 
       // console.log("FETCH URL =", url);

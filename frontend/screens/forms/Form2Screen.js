@@ -123,9 +123,8 @@ export default function Form2Screen({ navigation }) {
 
     setLoading(true);
     try {
-      const demoURL = 'http://192.168.1.12:3000';
+      const demoURL = 'http://192.168.1.93:3000';
       const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
-      console.log('test url',url)
       const token = await AsyncStorage.getItem('token');
 
 
@@ -194,35 +193,37 @@ export default function Form2Screen({ navigation }) {
   });
 
   const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
+    if (!image?.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
+      const baseUrl = "http://192.168.1.93:3000";
+      const mimeType = getMimeType(image);
+      const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
-      // Step 1: ask backend for presigned URL
+      // console.log("mimeType being sent:", mimeType);
+      // console.log("fileName being sent:", fileName);
+
       const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
-        fileName: image.fileName || "photo.jpg",
-        contentType: image.type || "image/jpeg",
+        fileName,
+        contentType: mimeType,
       });
 
       const { uploadUrl, key } = presignRes.data;
 
-      // Step 2: upload file directly to S3
-      await axios.put(uploadUrl, {
-        uri: image.uri,
-        type: image.type || "image/jpeg",
-        name: image.fileName || "photo.jpg",
-      }, {
+      const fileResponse = await fetch(image.uri);
+      const blob = await fileResponse.blob();
+
+      await fetch(uploadUrl, {
+        method: "PUT",
         headers: {
-          "Content-Type": image.type || "image/jpeg",
+          "Content-Type": mimeType,
         },
+        body: blob,
       });
 
-      // Step 3: return S3 key
       return key;
-
     } catch (err) {
-      console.error("Image upload failed:", err);
+      console.error("Image upload failed:", err?.response?.data || err.message || err);
       throw new Error("Image upload failed");
     }
   };
@@ -235,7 +236,7 @@ export default function Form2Screen({ navigation }) {
   * - Create Visit -> Create Sales detail
   * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.12:3000";
+    const baseUrl = "http://192.168.1.93:3000";
 
     const normalizeValue = (value, fallbackKeys = []) => {
       if (value == null) return "";

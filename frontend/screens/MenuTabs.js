@@ -164,7 +164,7 @@ export default function MenuTabs({ navigation }) {
   }, [filters, formList]);
 
   const getAllForms = async (userId) => {
-    const hardCode = 'http://192.168.1.11:3000';
+    const hardCode = 'http://192.168.1.93:3000';
     const url = `${hardCode}/api/visits/`;
 
     const token = await AsyncStorage.getItem('token');
@@ -186,7 +186,7 @@ export default function MenuTabs({ navigation }) {
 
   const editClick = async (editData) => {
     try {
-      const baseUrl = 'http://192.168.1.11:3000';
+      const baseUrl = 'http://192.168.1.93:3000';
       const token = await AsyncStorage.getItem('token');
       
       const endpointMap = {
@@ -202,7 +202,6 @@ export default function MenuTabs({ navigation }) {
       }
 
       const url = `${baseUrl}/api/visits/${endpoint}/${editData.id}`;
-      console.log(editData.id)
 
       const response = await axios.get(url, {
         headers: {
@@ -219,6 +218,44 @@ export default function MenuTabs({ navigation }) {
 
     } catch (error) {
       console.error('editClick error:', error?.response?.data || error.message);
+    }
+  };
+
+  const handleDeleteVisit = async (visit) => {
+    try {
+      console.log('in delete');
+      const token = await AsyncStorage.getItem("token");
+      const baseUrl = 'http://192.168.1.93:3000';
+
+      console.log('visitID:', visit.id);
+
+      const response = await fetch(`${baseUrl}/api/visits/${visit.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      let data = null;
+      const text = await response.text();
+
+      if (text) {
+        data = JSON.parse(text);
+      }
+
+      if (!response.ok) {
+        throw new Error(data?.message || "Failed to delete visit");
+      }
+
+      setFilteredFormList((prev) =>
+        prev.filter((item) => Number(item.id) !== Number(visit.id))
+      );
+
+      Alert.alert("Success", data?.message || "Visit deleted successfully");
+    } catch (err) {
+      console.error("handleDeleteVisit failed:", err);
+      Alert.alert("Error", err.message || "Failed to delete visit");
     }
   };
 
@@ -253,7 +290,7 @@ export default function MenuTabs({ navigation }) {
 
   const draftItems = filteredFormList.filter(i => Number(i.is_draft) === 1);
   const submittedItems = filteredFormList.filter(i => Number(i.is_draft) === 0);
-
+  
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -344,6 +381,7 @@ export default function MenuTabs({ navigation }) {
                 }
                 formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
                 onEdit={() => editClick(item)}
+                onDelete={() => handleDeleteVisit(item)}
               />
             </View>
           ))}
@@ -374,6 +412,7 @@ export default function MenuTabs({ navigation }) {
                   date={formatAnyDate(item.visited_at)}
                   formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
                   onEdit={() => editClick(item)}
+                  onDelete={() => handleDeleteVisit(item)}
                 />
               </View>
             );

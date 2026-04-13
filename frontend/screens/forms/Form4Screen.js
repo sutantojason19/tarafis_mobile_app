@@ -104,7 +104,7 @@ export default function Form4screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.12:3000";
+      const baseUrl = "http://192.168.1.93:3000";
 
       const response = await axios.post(
         `${baseUrl}/api/products/get-or-create`,
@@ -125,39 +125,41 @@ export default function Form4screen({ navigation }) {
     }
   };
   
-  const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
+   const uploadImageToS3 = async (image) => {
+      if (!image?.uri) return null;
 
-    try {
-      const baseUrl = "http://192.168.1.12:3000";
+      try {
+        const baseUrl = "http://192.168.1.93:3000";
+        const mimeType = getMimeType(image);
+        const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
-      // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
-        fileName: image.fileName || "photo.jpg",
-        contentType: image.type || "image/jpeg",
-      });
+        // console.log("mimeType being sent:", mimeType);
+        // console.log("fileName being sent:", fileName);
 
-      const { uploadUrl, key } = presignRes.data;
+        const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+          fileName,
+          contentType: mimeType,
+        });
 
-      // Step 2: upload file directly to S3
-      await axios.put(uploadUrl, {
-        uri: image.uri,
-        type: image.type || "image/jpeg",
-        name: image.fileName || "photo.jpg",
-      }, {
-        headers: {
-          "Content-Type": image.type || "image/jpeg",
-        },
-      });
+        const { uploadUrl, key } = presignRes.data;
 
-      // Step 3: return S3 key
-      return key;
+        const fileResponse = await fetch(image.uri);
+        const blob = await fileResponse.blob();
 
-    } catch (err) {
-      console.error("Image upload failed:", err);
-      throw new Error("Image upload failed");
-    }
-  };
+        await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": mimeType,
+          },
+          body: blob,
+        });
+
+        return key;
+      } catch (err) {
+        console.error("Image upload failed:", err?.response?.data || err.message || err);
+        throw new Error("Image upload failed");
+      }
+   };
 
   /**
    * Submit a tech-service form to the backend.
@@ -168,7 +170,7 @@ export default function Form4screen({ navigation }) {
     const isEmpty = (v) => v === null || v === undefined || v === "" || v === 0;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
+      const baseUrl = "http://192.168.1.93:3000";
 
       const [userIdRaw, token] = await Promise.all([
         AsyncStorage.getItem("user_id"),
@@ -255,10 +257,11 @@ export default function Form4screen({ navigation }) {
 
       if (!prodExist) {
         const prodBody = {
-          serial_number: serialNumber,
+          serial_number: serialNum,
           product_name: prodName,
-          product_type: tipeProd,
+          product_type: productType,
           brand_name: merkProd,
+          is_draft: isDraft,
         };
 
         const result = await getOrCreateProduct(prodBody);
@@ -310,7 +313,7 @@ export default function Form4screen({ navigation }) {
   const onSave = () => handleSubmit({ isDraft: true });
 
   const onSerialBlur = async (e) => {
-    const baseUrl = 'http://192.168.1.12:3000'
+    const baseUrl = 'http://192.168.1.93:3000'
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
@@ -321,13 +324,13 @@ export default function Form4screen({ navigation }) {
 
       if (res.ok) {
         const data = await res.json();
-
-        if (data.exists) {
+        
+        if (data.exists && data.product.product_name != null) {
           setProdName(data.product.product_name);
           setProductType(data.product.product_type);
           setMerk(data.product.brand_name);
-          setProdExist(true);
           setProdID(data.product.id);
+          setProdExist(true);
         } else {
           setProdExist(false);
         }

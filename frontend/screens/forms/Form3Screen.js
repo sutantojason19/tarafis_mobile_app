@@ -95,12 +95,14 @@ export default function Form3screen({ navigation }) {
     setTgl(formatted);
   };
 
+
+   /**
+   * Check if product exists in product db
+   */  
   const onSerialBlur = async (e) => {
-    console.log('in correct method')
+    const baseUrl = 'http://192.168.1.93:3000'
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
-
-    const baseUrl = 'http://192.168.1.12:3000'
 
     try {
       const res = await fetch(
@@ -109,14 +111,13 @@ export default function Form3screen({ navigation }) {
 
       if (res.ok) {
         const data = await res.json();
-
-        if (data.exists) {
+        
+        if (data.exists && data.product.product_name != null) {
           setProdName(data.product.product_name);
-          setTipeProd(data.product.product_type);
+          setProductType(data.product.product_type);
           setMerk(data.product.brand_name);
+          setProdID(data.product.id);
           setProdExist(true);
-          setProdId(data.product.id);
-
         } else {
           setProdExist(false);
         }
@@ -162,7 +163,7 @@ export default function Form3screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.12:3000";
+      const baseUrl = "http://192.168.1.93:3000";
 
       const response = await axios.post(
         `${baseUrl}/api/products/get-or-create`,
@@ -231,38 +232,40 @@ export default function Form3screen({ navigation }) {
   };
 
   const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
+      if (!image?.uri) return null;
 
-    try {
-      const baseUrl = "http://192.168.1.12:3000";
+      try {
+        const baseUrl = "http://192.168.1.93:3000";
+        const mimeType = getMimeType(image);
+        const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
-      // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
-        fileName: image.fileName || "photo.jpg",
-        contentType: image.type || "image/jpeg",
-      });
+        // console.log("mimeType being sent:", mimeType);
+        // console.log("fileName being sent:", fileName);
 
-      const { uploadUrl, key } = presignRes.data;
+        const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+          fileName,
+          contentType: mimeType,
+        });
 
-      // Step 2: upload file directly to S3
-      await axios.put(uploadUrl, {
-        uri: image.uri,
-        type: image.type || "image/jpeg",
-        name: image.fileName || "photo.jpg",
-      }, {
-        headers: {
-          "Content-Type": image.type || "image/jpeg",
-        },
-      });
+        const { uploadUrl, key } = presignRes.data;
 
-      // Step 3: return S3 key
-      return key;
+        const fileResponse = await fetch(image.uri);
+        const blob = await fileResponse.blob();
 
-    } catch (err) {
-      console.error("Image upload failed:", err);
-      throw new Error("Image upload failed");
-    }
-  };
+        await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": mimeType,
+          },
+          body: blob,
+        });
+
+        return key;
+      } catch (err) {
+        console.error("Image upload failed:", err?.response?.data || err.message || err);
+        throw new Error("Image upload failed");
+      }
+   };
 
   /**
    * handleSubmit — Submit technician activity form to backend
@@ -275,7 +278,7 @@ export default function Form3screen({ navigation }) {
    * - Create activity detail
    */
   const handleSubmit = async ({isDraft}) => { 
-    const baseURL = 'http://192.168.1.12:3000';
+    const baseURL = 'http://192.168.1.93:3000';
 
     const fail = (message, extra = null) => {
       if (extra) console.error(message, extra);
@@ -338,6 +341,7 @@ export default function Form3screen({ navigation }) {
           product_name: prodName,
           product_type: tipeProd,
           brand_name: merkProd,
+          is_draft: isDraft,
         };
 
         const productResponse = await getOrCreateProduct(productPayload);

@@ -1,5 +1,5 @@
 /**
- * Form1Screen (Sales Visit Customer)
+ * Form 1 Screen (Sales Visit Customer)
  * ----------------------------------
  * Screen used to create a "Sales Visit (Customer / Faskes)" form.
  *
@@ -23,6 +23,7 @@
  *  - Ensure `API_URL` is defined in your environment for production builds.
  *  - axios is used for HTTP calls to benefit from cancellation and uniform error handling.
  */
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, ActivityIndicator, Button, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -78,6 +79,7 @@ export default function Form1Screen({ navigation }) {
   /* -------------------------
    * Caching and cancellation helpers
    * ------------------------- */
+
   // cacheRef: store previously fetched hospitals per-region to avoid extra network calls
   const cacheRef = useRef(new Map());
 
@@ -157,7 +159,6 @@ export default function Form1Screen({ navigation }) {
     });
   };
 
-
   /* -------------------------
    * onSelectRegion(selectReg)
    * - Fetch hospitals for a given region
@@ -185,11 +186,11 @@ export default function Form1Screen({ navigation }) {
     setLoading(true);
     try {
       // Normalize API_URL and construct endpoint
-      const demoURL = 'http://192.168.1.12:3000';
+      const demoURL = 'http://192.168.1.93:3000';
 
       const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
       const token = await AsyncStorage.getItem('token');
-      console.log(url)
+      // console.log(url)
 
       // axios GET with AbortController signal and a 10s timeout (optional)
       const resp = await axios.get(url, {
@@ -259,36 +260,53 @@ export default function Form1Screen({ navigation }) {
     Authorization: `Bearer ${token}`,
   });
 
+  const getMimeType = (image) => {
+    if (image?.mimeType) return image.mimeType;
+    if (image?.type && image.type.includes("/")) return image.type;
+
+    const name = (image?.fileName || image?.uri || "").toLowerCase();
+
+    if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+    if (name.endsWith(".png")) return "image/png";
+    if (name.endsWith(".webp")) return "image/webp";
+    if (name.endsWith(".heic")) return "image/heic";
+    if (name.endsWith(".heif")) return "image/heif";
+
+    return "image/jpeg";
+  };
+
   const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
+    if (!image?.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
+      const baseUrl = "http://192.168.1.93:3000";
+      const mimeType = getMimeType(image);
+      const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
-      // Step 1: ask backend for presigned URL
+      // console.log("mimeType being sent:", mimeType);
+      // console.log("fileName being sent:", fileName);
+
       const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
-        fileName: image.fileName || "photo.jpg",
-        contentType: image.type || "image/jpeg",
+        fileName,
+        contentType: mimeType,
       });
 
       const { uploadUrl, key } = presignRes.data;
 
-      // Step 2: upload file directly to S3
-      await axios.put(uploadUrl, {
-        uri: image.uri,
-        type: image.type || "image/jpeg",
-        name: image.fileName || "photo.jpg",
-      }, {
+      const fileResponse = await fetch(image.uri);
+      const blob = await fileResponse.blob();
+
+      await fetch(uploadUrl, {
+        method: "PUT",
         headers: {
-          "Content-Type": image.type || "image/jpeg",
+          "Content-Type": mimeType,
         },
+        body: blob,
       });
 
-      // Step 3: return S3 key
       return key;
-
     } catch (err) {
-      console.error("Image upload failed:", err);
+      console.error("Image upload failed:", err?.response?.data || err.message || err);
       throw new Error("Image upload failed");
     }
   };
@@ -300,7 +318,7 @@ export default function Form1Screen({ navigation }) {
     * - Creates sales detail
     * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.12:3000";
+    const baseUrl = "http://192.168.1.93:3000";
 
     const norm = (v) => (v?.value ?? v?.label ?? v ?? "").toString().trim();
     const fail = (msg) => {
@@ -408,6 +426,7 @@ export default function Form1Screen({ navigation }) {
       };
 
       await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
+      console.log('is_draft value: ', draftToSend)
 
       alert(isDraft ? "Draft saved!" : "Submitted successfully!");
 
@@ -430,7 +449,6 @@ export default function Form1Screen({ navigation }) {
 
   const onSubmit = () => submitForm({ isDraft: false });
   const onSave = () => submitForm({ isDraft: true });
-
 
   /* -------------------------
    * Render
