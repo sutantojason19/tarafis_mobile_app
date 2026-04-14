@@ -35,7 +35,23 @@ const app = express();
  * Enable Cross-Origin Resource Sharing.
  * Allows your React Native frontend to access backend resources.
  */
-app.use(cors());
+
+ // block website asing yg menggunakan api
+const allowedOrigins = process.env.CORS_ORIGIN.split(',');
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow non-browser requests (Postman, mobile app)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 
 /**
  * Parse JSON request bodies.

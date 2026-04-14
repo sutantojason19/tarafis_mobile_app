@@ -34,7 +34,6 @@ import CameraInput from "../../components/CameraInput";
 import { kuantitas_option } from "../../data/appData";
 import axios from "axios";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
 import API_BASE from "../../config/api";
 
 
@@ -104,10 +103,8 @@ export default function Form4screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.12:3000";
-
       const response = await axios.post(
-        `${baseUrl}/api/products/get-or-create`,
+        `${API_BASE}/api/products/get-or-create`,
         body,
         {
           headers: {
@@ -126,13 +123,9 @@ export default function Form4screen({ navigation }) {
   };
   
   const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
-
     try {
-      const baseUrl = "http://192.168.1.12:3000";
-
       // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+      const presignRes = await axios.post(`${API_BASE}/api/uploads/presign`, {
         fileName: image.fileName || "photo.jpg",
         contentType: image.type || "image/jpeg",
       });
@@ -168,7 +161,6 @@ export default function Form4screen({ navigation }) {
     const isEmpty = (v) => v === null || v === undefined || v === "" || v === 0;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
 
       const [userIdRaw, token] = await Promise.all([
         AsyncStorage.getItem("user_id"),
@@ -242,7 +234,7 @@ export default function Form4screen({ navigation }) {
         is_draft: Number(isDraft),
       };
 
-      const visitRes = await axios.post(getVisitsUrl(baseUrl), visitPayload, { headers });
+      const visitRes = await axios.post(getVisitsUrl(API_BASE), visitPayload, { headers });
 
       const visitId =
         visitRes?.data?.id ??
@@ -285,7 +277,7 @@ export default function Form4screen({ navigation }) {
       };
 
       const serviceRes = await axios.post(
-        getServiceUrl(baseUrl, visitId),
+        getServiceUrl(API_BASE, visitId),
         serviceDetailPayload,
         {
           headers: {
@@ -310,13 +302,12 @@ export default function Form4screen({ navigation }) {
   const onSave = () => handleSubmit({ isDraft: true });
 
   const onSerialBlur = async (e) => {
-    const baseUrl = 'http://192.168.1.12:3000'
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
     try {
       const res = await fetch(
-        `${baseUrl}/api/products/by-serial/${serial}`
+        `${API_BASE}/api/products/by-serial/${serial}`
       );
 
       if (res.ok) {

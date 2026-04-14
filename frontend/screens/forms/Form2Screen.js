@@ -33,7 +33,7 @@ import SearchBar from '../../components/SearchBar';
 import { nama_sales, regions } from "../../data/appData";
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../../config/api';
 
 /**
  * Height of the form header. Exported so other components/layouts can align with it.
@@ -123,8 +123,7 @@ export default function Form2Screen({ navigation }) {
 
     setLoading(true);
     try {
-      const demoURL = 'http://192.168.1.12:3000';
-      const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
+      const url = `${API_BASE}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
       console.log('test url',url)
       const token = await AsyncStorage.getItem('token');
 
@@ -197,10 +196,8 @@ export default function Form2Screen({ navigation }) {
     if (!image || !image.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
-
       // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+      const presignRes = await axios.post(`${API_BASE}/api/uploads/presign`, {
         fileName: image.fileName || "photo.jpg",
         contentType: image.type || "image/jpeg",
       });
@@ -235,7 +232,6 @@ export default function Form2Screen({ navigation }) {
   * - Create Visit -> Create Sales detail
   * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.12:3000";
 
     const normalizeValue = (value, fallbackKeys = []) => {
       if (value == null) return "";
@@ -365,7 +361,7 @@ export default function Form2Screen({ navigation }) {
       };
 
       const visitRes = await axios.post(
-        getVisitsUrl(baseUrl),
+        getVisitsUrl(API_BASE),
         visitPayload,
         axiosCfg
       );
@@ -392,7 +388,7 @@ export default function Form2Screen({ navigation }) {
         is_draft: draftFlag,
       };
 
-      await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
+      await axios.post(getSalesUrl(API_BASE, visitId), salesPayload, axiosCfg);
 
       alert(isDraft ? "Draft saved!" : "Submitted successfully!");
     } catch (err) {

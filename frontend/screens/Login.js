@@ -34,12 +34,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { API_URL } from '@env';
+import API_BASE from '../config/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function Login({ navigation }) {
@@ -53,11 +53,9 @@ export default function Login({ navigation }) {
    *  - Stores token + user_id in AsyncStorage
    *  - Navigates user into the main application via `navigation.replace`
    */
- const onLogin = async () => {
+  const onLogin = async () => {
     try {
-      const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = 'http://192.168.1.4:3000';
-      const url = `${baseWithFallback}/api/auth/login`;
+      const url = `${API_BASE}/api/auth/login`;
 
       // console.log("FETCH URL =", url);
 
@@ -101,9 +99,12 @@ export default function Login({ navigation }) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <KeyboardAwareScrollView
+      style={{ flex: 1, backgroundColor: '#fff' }}
+      contentContainerStyle={{ flexGrow: 1 }}
+      bounces={false}
+      enableOnAndroid={true}
+      extraScrollHeight={50}
     >
       <View style={styles.container}>
 
@@ -131,6 +132,9 @@ export default function Login({ navigation }) {
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
             />
 
             {/* Password input */}
@@ -142,6 +146,10 @@ export default function Login({ navigation }) {
               secureTextEntry
               value={password}
               onChangeText={setPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              textContentType="password"
             />
 
             {/* Info / help link */}
@@ -157,7 +165,7 @@ export default function Login({ navigation }) {
                 end={{ x: 1, y: 0 }}
                 style={styles.button}
               >
-                <Text style={styles.buttonText}>SIGN IN</Text>
+                <Text style={styles.buttonText}>SIGN IN!</Text>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -172,7 +180,7 @@ export default function Login({ navigation }) {
         </View>
 
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScrollView>
   );
 }
 

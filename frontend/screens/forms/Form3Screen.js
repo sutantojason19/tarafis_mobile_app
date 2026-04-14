@@ -49,7 +49,6 @@ import CameraInput from "../../components/CameraInput";
 import { nama_teknisi, kuantitas_option } from "../../data/appData";
 import axios from "axios";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
 
 const PRIMARY = "#3B82F6";
 
@@ -97,14 +96,9 @@ export default function Form3screen({ navigation }) {
 
   const onSerialBlur = async (e) => {
     console.log('in correct method')
-    const serial = e?.nativeEvent?.text;
-    if (!serial) return;
-
-    const baseUrl = 'http://192.168.1.12:3000'
-
     try {
       const res = await fetch(
-        `${baseUrl}/api/products/by-serial/${serial}`
+        `${API_BASE}/api/products/by-serial/${serial}`
       );
 
       if (res.ok) {
@@ -162,10 +156,8 @@ export default function Form3screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.12:3000";
-
       const response = await axios.post(
-        `${baseUrl}/api/products/get-or-create`,
+        `${API_BASE}/api/products/get-or-create`,
         body,
         {
           headers: {
@@ -231,13 +223,9 @@ export default function Form3screen({ navigation }) {
   };
 
   const uploadImageToS3 = async (image) => {
-    if (!image || !image.uri) return null;
-
     try {
-      const baseUrl = "http://192.168.1.12:3000";
-
       // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+      const presignRes = await axios.post(`${API_BASE}/api/uploads/presign`, {
         fileName: image.fileName || "photo.jpg",
         contentType: image.type || "image/jpeg",
       });
@@ -275,7 +263,6 @@ export default function Form3screen({ navigation }) {
    * - Create activity detail
    */
   const handleSubmit = async ({isDraft}) => { 
-    const baseURL = 'http://192.168.1.12:3000';
 
     const fail = (message, extra = null) => {
       if (extra) console.error(message, extra);
@@ -398,7 +385,7 @@ export default function Form3screen({ navigation }) {
       const visitPayload = fieldsToObject(visitHeaderFields);
 
       const visitRes = await axios.post(
-        getVisitsUrl(baseURL),
+        getVisitsUrl(API_BASE),
         visitPayload,
         axiosCfg
       );
@@ -417,7 +404,7 @@ export default function Form3screen({ navigation }) {
       }
 
       const activityRes = await axios.post(
-        getActivityUrl(baseURL, visitId),
+        getActivityUrl(API_BASE, visitId),
         activityPayload,
         axiosCfg
       );
