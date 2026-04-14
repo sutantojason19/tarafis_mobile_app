@@ -43,7 +43,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../config/api';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 /* ------------------------------------------------------------------
@@ -82,12 +82,7 @@ export default function CardInfo(props) {
   const data = dataProp ?? route?.params?.data ?? null;
 
   // Prefer explicit prop, otherwise env, otherwise fallback host
-  // const apiHost =
-  //   (uploadingHostProp && String(uploadingHostProp).replace(/\/$/, '')) ||
-  //   (API_URL && String(API_URL).replace(/\/$/, '')) ||
-  //   'http://192.168.1.14:3000';
-
-   const apiHost = 'http://192.168.1.11:3000';
+  const apiHost = API_BASE;
    console.log(apiHost)
 
   // Local editable copy of the record

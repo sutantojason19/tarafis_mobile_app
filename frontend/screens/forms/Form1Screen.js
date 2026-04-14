@@ -37,7 +37,7 @@ import SearchBar from '../../components/SearchBar';
 import { nama_sales, regions, jabatan, status_kunjungan, jumlah_user } from "../../data/appData";
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../../config/api';
 
 /**
  * HEADER_HEIGHT exported so other components/layout can align with the form header.
@@ -185,9 +185,7 @@ export default function Form1Screen({ navigation }) {
     setLoading(true);
     try {
       // Normalize API_URL and construct endpoint
-      const demoURL = 'http://192.168.1.12:3000';
-
-      const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
+      const url = `${API_BASE}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
       const token = await AsyncStorage.getItem('token');
       console.log(url)
 
@@ -263,10 +261,8 @@ export default function Form1Screen({ navigation }) {
     if (!image || !image.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.12:3000";
-
       // Step 1: ask backend for presigned URL
-      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+      const presignRes = await axios.post(`${API_BASE}/api/uploads/presign`, {
         fileName: image.fileName || "photo.jpg",
         contentType: image.type || "image/jpeg",
       });
@@ -300,7 +296,6 @@ export default function Form1Screen({ navigation }) {
     * - Creates sales detail
     * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.12:3000";
 
     const norm = (v) => (v?.value ?? v?.label ?? v ?? "").toString().trim();
     const fail = (msg) => {
@@ -382,7 +377,7 @@ export default function Form1Screen({ navigation }) {
         sales_category: "healthcare",
       };
 
-      const visitRes = await axios.post(getVisitsUrl(baseUrl), visitPayload, axiosCfg);
+      const visitRes = await axios.post(getVisitsUrl(API_BASE), visitPayload, axiosCfg);
 
       const visitId =
         visitRes?.data?.visit_id ??
@@ -407,7 +402,7 @@ export default function Form1Screen({ navigation }) {
         is_draft: draftToSend,
       };
 
-      await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
+      await axios.post(getSalesUrl(API_BASE, visitId), salesPayload, axiosCfg);
 
       alert(isDraft ? "Draft saved!" : "Submitted successfully!");
 

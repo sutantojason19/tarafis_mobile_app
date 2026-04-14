@@ -16,7 +16,7 @@ import Header from '../components/Header';
 import TaskCard from '../components/TaskCard';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../config/api';
 
 /* ------------------------------------------------------------------
  * Layout constants
@@ -164,8 +164,7 @@ export default function MenuTabs({ navigation }) {
   }, [filters, formList]);
 
   const getAllForms = async (userId) => {
-    const hardCode = 'http://192.168.1.11:3000';
-    const url = `${hardCode}/api/visits/`;
+    const url = `${API_BASE}/api/visits/`;
 
     const token = await AsyncStorage.getItem('token');
 
@@ -186,7 +185,6 @@ export default function MenuTabs({ navigation }) {
 
   const editClick = async (editData) => {
     try {
-      const baseUrl = 'http://192.168.1.11:3000';
       const token = await AsyncStorage.getItem('token');
       
       const endpointMap = {
@@ -201,7 +199,7 @@ export default function MenuTabs({ navigation }) {
         throw new Error(`Unknown visit_type: ${editData.visit_type}`);
       }
 
-      const url = `${baseUrl}/api/visits/${endpoint}/${editData.id}`;
+      const url = `${API_BASE}/api/visits/${endpoint}/${editData.id}`;
       console.log(editData.id)
 
       const response = await axios.get(url, {
