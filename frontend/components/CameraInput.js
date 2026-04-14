@@ -141,7 +141,6 @@ const CameraInput = ({ title = 'Photo', onImageSelected, image }) => {
         null,
         [
           { text: 'Kamera', onPress: pickFromCamera },
-          { text: 'Galeri', onPress: pickFromLibrary },
           { text: 'Batal', style: 'cancel' },
         ],
         { cancelable: true }

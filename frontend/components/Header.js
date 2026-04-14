@@ -24,6 +24,23 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export default function Header({ title, navigation }) {
+
+   const handleBackPress = () => {
+    if (title === "Tasks") {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("Landing"); // fallback safety
+    }
+  };
+
   return (
     <LinearGradient
       colors={['#60A5FA', '#3B82F6']}  // Blue gradient background
@@ -34,10 +51,10 @@ export default function Header({ title, navigation }) {
       <View style={styles.headerContent}>
 
         {/* Back button */}
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={handleBackPress}>
           <FontAwesome5 name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
-
+        
         {/* Header Title */}
         <Text style={styles.headerTitle}>{title}</Text>
       </View>

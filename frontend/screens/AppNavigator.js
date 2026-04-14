@@ -27,6 +27,7 @@ import Form3Screen from './forms/Form3Screen';
 import Form4Screen from './forms/Form4Screen';
 import CardInfo from '../components/CardInfo';
 import FilterScreen from '../components/FilterScreen';
+import BarcodeScanner from '../components/BarcodeScanner';
 
 const Stack = createStackNavigator();
 

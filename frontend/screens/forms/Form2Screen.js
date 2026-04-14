@@ -20,9 +20,8 @@
  *  - The previous code referenced an undefined `host` variable when composing the POST URL.
  *    This implementation uses a normalized `API_URL` with an optional local fallback if needed.
  */
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import FormHeader from '../../components/FormHeader';
 import InputBox from '../../components/InputBox';
@@ -47,7 +46,6 @@ export default function Form2Screen({ navigation }) {
    * ------------------------- */
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-
   const [namaSales, setNamaSales] = useState('');   // sales picker value
   const [region, setRegion] = useState('');         // selected region string
   const [lokasi, setLokasi] = useState('');         // selected hospital name/value
@@ -125,10 +123,14 @@ export default function Form2Screen({ navigation }) {
 
     setLoading(true);
     try {
-      const demoURL = 'http://192.168.1.14:3000';
-      const url = `${demoURL}/api/forms/hospital/${encodeURIComponent(selectReg)}`;
+      const demoURL = 'http://192.168.1.12:3000';
+      const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
+      console.log('test url',url)
+      const token = await AsyncStorage.getItem('token');
+
 
       const resp = await axios.get(url, {
+        headers: buildAuthHeaders(token),
         signal: controller.signal,
         timeout: 10000,
       });
@@ -162,95 +164,260 @@ export default function Form2Screen({ navigation }) {
     }
   };
 
+  // URL builders (single source of truth)
+  const getVisitsUrl = (baseUrl) => `${baseUrl}/api/visits`;
+  const getSalesUrl = (baseUrl, visitId) => `${baseUrl}/api/visits/${visitId}/sales`;
+
+  // Helper to check empty string 
+  const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
+
+  //Parse lat and longitude
+  const parseCoords = (coordsStr) => {
+    if (!isNonEmptyString(coordsStr)) return null;
+
+    // allow "lat,lng" or "lat, lng"
+    const parts = coordsStr.split(",").map((s) => s.trim());
+    if (parts.length !== 2) return null;
+
+    const lat = Number(parts[0]);
+    const lng = Number(parts[1]);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+    return { lat, lng };
+  };
+  
+  // helper for function headers
+  const buildAuthHeaders = (token) => ({
+    Authorization: `Bearer ${token}`,
+  });
+
+  const uploadImageToS3 = async (image) => {
+    if (!image || !image.uri) return null;
+
+    try {
+      const baseUrl = "http://192.168.1.12:3000";
+
+      // Step 1: ask backend for presigned URL
+      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+        fileName: image.fileName || "photo.jpg",
+        contentType: image.type || "image/jpeg",
+      });
+
+      const { uploadUrl, key } = presignRes.data;
+
+      // Step 2: upload file directly to S3
+      await axios.put(uploadUrl, {
+        uri: image.uri,
+        type: image.type || "image/jpeg",
+        name: image.fileName || "photo.jpg",
+      }, {
+        headers: {
+          "Content-Type": image.type || "image/jpeg",
+        },
+      });
+
+      // Step 3: return S3 key
+      return key;
+
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      throw new Error("Image upload failed");
+    }
+  };
 
   /* -------------------------
-   * Form submit handler
-   * - Builds FormData and posts to `/api/forms/customer`
-   * - Normalizes API_URL to avoid double-slash issues
-   * ------------------------- */
-  const submitForm = async ({isDraft}) => {
-    try {
-      // Normalize API_URL (remove trailing slashes)
-      const base = (typeof API_URL === 'string' ? API_URL.trim().replace(/\/+$/g, '') : '');
-      // Optional fallback for local debugging (adjust or remove as desired)
-      const host = base || 'http://192.168.1.21:3000';
-      const demoURL = 'http://192.168.1.14:3000';
-      const url = `${demoURL}/api/forms/non-faskes`;
+  * submitForm()
+  * - Normalize values
+  * - Validate (draft vs final)
+  * - Upload image if provided
+  * - Create Visit -> Create Sales detail
+  * ------------------------- */
+  const submitForm = async ({ isDraft }) => {
+    const baseUrl = "http://192.168.1.12:3000";
 
-      // -------------------------
-      // Draft validation (minimal)
-      // -------------------------
-      if (isDraft && !namaSales) {
-        alert('Nama Sales is required to save a draft');
-        return;
+    const normalizeValue = (value, fallbackKeys = []) => {
+      if (value == null) return "";
+      if (typeof value === "object") {
+        for (const key of fallbackKeys) {
+          if (value[key] != null) {
+            return String(value[key]).trim();
+          }
+        }
+        return "";
+      }
+      return String(value).trim();
+    };
+
+    const showError = (message) => {
+      alert(message);
+      return null;
+    };
+
+    const getVisitIdFromResponse = (responseData) =>
+      responseData?.visit_id ??
+      responseData?.id ??
+      responseData?.data?.id ??
+      null;
+
+    const validateFinalSubmit = ({
+      name,
+      region,
+      lokasi,
+      alamat,
+      coords,
+      tujuan,
+      note,
+    }) => {
+      const missing = [];
+
+      if (!isNonEmptyString(name)) missing.push("Nama Sales");
+      if (!isNonEmptyString(region)) missing.push("Region");
+      if (!isNonEmptyString(lokasi)) missing.push("Lokasi");
+      if (!isNonEmptyString(alamat)) missing.push("Alamat");
+      if (!isNonEmptyString(coords)) missing.push("Koordinat");
+      if (!isNonEmptyString(tujuan)) missing.push("Tujuan Kunjungan");
+      if (!isNonEmptyString(note)) missing.push("Note Kunjungan");
+
+      return missing;
+    };
+
+    try {
+      // 1) Auth
+      const [userIdRaw, token] = await Promise.all([
+        AsyncStorage.getItem("user_id"),
+        AsyncStorage.getItem("token"),
+      ]);
+
+      const userId = Number(userIdRaw);
+
+      if (!userIdRaw || Number.isNaN(userId)) {
+        return showError("Missing or invalid user_id. Please log in again.");
       }
 
-      // -------------------------
-      // Submit validation (strict)
-      // -------------------------
+      if (!token) {
+        return showError("Missing token. Please log in again.");
+      }
+
+      // 2) Normalize inputs
+      const normalized = {
+        salesName: normalizeValue(namaSales, ["value", "label"]),
+        region: normalizeValue(region, ["value", "label"]),
+        lokasi: normalizeValue(lokasi, ["label", "value"]),
+        alamat: normalizeValue(alamat),
+        coords: normalizeValue(coords),
+        tujuan: normalizeValue(tujuan, ["value", "label"]),
+        note: normalizeValue(note),
+      };
+
+      // 3) Validation
       if (!isDraft) {
-        const requiredFields = [
-          { key: nameToSend, label: 'Nama Sales' },
-          { key: regionToSend, label: 'Region' },
-          { key: lokasiToSend, label: 'Lokasi' },
-          { key: alamatToSend, label: 'Alamat' },
-          { key: coordsToSend, label: 'Koordinat' },
-          { key: selected, label: 'Tujuan Kunjungan'},
-          { key: note, label: 'Note Kunjungan'},
-          { key: dokumentasi, label: 'Dokumentasi Kunjungan'},
-        ];
+        const missingFields = validateFinalSubmit(normalized);
 
-        const missing = requiredFields.filter(
-          f => f.key === null || f.key === undefined || f.key === '' || f.key === 0
-        );
-
-        if (missing.length > 0) {
-          alert(
-            `Please complete required fields:\n${missing
-              .map(f => `• ${f.label}`)
-              .join('\n')}`
+        if (missingFields.length > 0) {
+          return showError(
+            `Please complete required fields:\n${missingFields
+              .map((field) => `• ${field}`)
+              .join("\n")}`
           );
-          return;
         }
       }
 
-      // Read user id from storage (replace with auth state in production)
-      const userId = await AsyncStorage.getItem('user_id');
+      // 4) Parse coordinates
+      // Drafts are allowed to skip coords
+      let parsedCoords = { lat: null, lng: null };
 
-      const nameToSend = namaSales?.value ?? namaSales ?? '';
-      const regionToSend = region?.value ?? region ?? '';
-      const lokasiToSend = lokasi?.label ?? '';
-      console.log('nama sales: ', namaSales)
-      const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('nama_sales', nameToSend);
-      formData.append('region', regionToSend);
-      formData.append('nama_lokasi', lokasiToSend);
-      formData.append('alamat_lokasi', alamat);
-      formData.append('koordinat_lokasi', coords);
-      formData.append('tujuan_kunjungan', tujuan);
-      formData.append('note_kunjungan', note);
+      if (!isDraft && normalized.coords) {
+        parsedCoords = parseCoords(normalized.coords);
 
-      if (dokumentasi?.uri) {
-        formData.append('dokumentasi_kunjungan', {
-          uri: dokumentasi.uri,
-          name: dokumentasi.fileName || 'photo.jpg',
-          type: dokumentasi.type || 'image/jpeg',
-        });
+        if (!parsedCoords) {
+          return showError(
+            'Koordinat format invalid. Use "lat, lng" e.g. "-6.214620, 106.845130"'
+          );
+        }
       }
 
-      isDraft ? formData.append('status', 'draft') : formData.append('status', 'submitted')
+      const axiosCfg = {
+        headers: buildAuthHeaders(token),
+        timeout: 20000,
+      };
 
-      // Let axios set the Content-Type (including boundary) automatically
-      const response = await axios.post(url, formData);
+      const draftFlag = isDraft ? 1 : 0;
 
-      alert('Form submitted successfully!');
-      return response.data;
-    } catch (error) {
-      const errPayload = error.response?.data ?? error.message ?? error;
-      console.error('Upload failed:', errPayload);
-      alert('Failed to submit form. Please try again.');
-      throw error;
+      // 5) Upload image if any
+      let dokumentasiKey = null;
+      if (dokumentasi?.uri) {
+        dokumentasiKey = await uploadImageToS3(dokumentasi);
+      }
+
+      // 6) Create visit header
+      const visitPayload = {
+        user_id: userId,
+        customer_id: 1,
+        visited_at: new Date().toISOString(),
+        latitude: parsedCoords.lat != null ? String(parsedCoords.lat) : null,
+        longitude: parsedCoords.lng != null ? String(parsedCoords.lng) : null,
+        visit_type: "sales",
+        note: normalized.note,
+        sales_category: "non_healthcare",
+        is_draft: draftFlag,
+      };
+
+      const visitRes = await axios.post(
+        getVisitsUrl(baseUrl),
+        visitPayload,
+        axiosCfg
+      );
+
+      const visitId = getVisitIdFromResponse(visitRes?.data);
+
+      if (!visitId) {
+        console.error("Unexpected visit create response:", visitRes?.data);
+        return showError(
+          "Visit created but no visitId returned. Check backend response."
+        );
+      }
+
+      // 7) Create sales detail
+      const salesPayload = {
+        visit_form_type: "non_healthcare",
+        region: normalized.region || null,
+        location_name: normalized.lokasi || null,
+        location_address: normalized.alamat || null,
+        visit_purpose: normalized.tujuan || null,
+        visit_status: null,
+        sales_name: normalized.salesName || null,
+        visit_documentation: dokumentasiKey,
+        is_draft: draftFlag,
+      };
+
+      await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
+
+      alert(isDraft ? "Draft saved!" : "Submitted successfully!");
+    } catch (err) {
+      const status = err?.response?.status;
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Unknown error";
+
+      console.error("submitForm error:", {
+        status,
+        msg,
+        data: err?.response?.data,
+      });
+
+      if (status === 401) {
+        return alert("Session expired (401). Please log in again.");
+      }
+
+      if (status === 422) {
+        return alert(`Validation failed (422): ${msg}`);
+      }
+
+      alert(`Failed to submit: ${msg}`);
     }
   };
 

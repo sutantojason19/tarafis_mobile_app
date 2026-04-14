@@ -20,6 +20,7 @@
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
     "expo": "~54.0.20",
+    "expo-camera": "~17.0.10",
     "expo-file-system": "~19.0.19",
     "expo-image-picker": "~17.0.8",
     "expo-linear-gradient": "~15.0.7",

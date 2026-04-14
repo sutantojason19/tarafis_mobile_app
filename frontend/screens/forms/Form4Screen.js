@@ -65,6 +65,7 @@ export default function Form4screen({ navigation }) {
   const [deskMas, setDesMas] = useState("");
   const [prodExist, setProdExist] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
+  const [prodId, setProdID] = useState();
   
 
   // Convert Date -> YYYY-MM-DD
@@ -92,117 +93,215 @@ export default function Form4screen({ navigation }) {
   const goNext = () => setPage((p) => Math.min(3, p + 1));
   const goBack = () => setPage((p) => Math.max(1, p - 1));
 
-  /**
-   * Submit a tech-service form to the backend.
-   * - Normalizes API_URL to avoid trailing-slash issues.
-   * - Builds FormData including optional image attachments.
-   * - Uses axios to POST multipart/form-data.
-   * Throws on failure after showing an alert.
-   */
-  const handleSubmit = async ({isDraft}) => {
-    // Normalize API base URL and validate
-    const getBaseUrl = () => {
-      if (typeof API_URL !== 'string' || !API_URL.trim()) {
-        throw new Error('API_URL is not defined. Check your .env configuration.');
-      }
-      return API_URL.trim().replace(/\/+$/g, '');
-    };
+  const getVisitsUrl = (baseUrl) => `${baseUrl}/api/visits`;
+  const getServiceUrl = (baseUrl, visitId) => `${baseUrl}/api/visits/${visitId}/service`;
 
-    // Append image to FormData if present
-    const appendImageIfExists = (fd, fieldName, imageObj) => {
-      if (!imageObj?.uri) return;
-      fd.append(fieldName, {
-        uri: imageObj.uri,
-        name: imageObj.fileName || 'photo.jpg',
-        type: imageObj.type || 'image/jpeg',
-      });
-    };
+  const buildAuthHeaders = (token) => ({
+    Authorization: `Bearer ${token}`,
+  });
+
+  const getOrCreateProduct = async (body) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+
+      const baseUrl = "http://192.168.1.12:3000";
+
+      const response = await axios.post(
+        `${baseUrl}/api/products/get-or-create`,
+        body,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      console.log("Result:", response.data);
+      return response.data;
+
+    } catch (err) {
+      console.log("Error:", err.response?.data || err.message);
+      throw err;
+    }
+  };
+  
+  const uploadImageToS3 = async (image) => {
+    if (!image || !image.uri) return null;
 
     try {
-      const base = getBaseUrl();
-      const demoURL = 'http://192.168.1.14:3000';
-      const url = `${demoURL}/api/forms/tech-service`;
+      const baseUrl = "http://192.168.1.12:3000";
 
-      const userId = await AsyncStorage.getItem('user_id');
-      const kuantitasToSend = kuantitas?.value ?? kuantitas ?? '';
-      const lokasiToSend = lokasi?.label ?? '';
+      // Step 1: ask backend for presigned URL
+      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+        fileName: image.fileName || "photo.jpg",
+        contentType: image.type || "image/jpeg",
+      });
 
-       const requiredFields = [
-          {key: 'user_id', value: userId, label: 'User ID'},
-          { key: 'nama_customer', value: namaCust, label: 'Nama Customer' },
-          { key: 'nama_faskes', value: lokasiToSend, label: 'Nama Lokasi' },
-          { key: 'tanggal_pengambilan', value: tgl, label: 'Tanggal Pengambilan' },
-          { key: 'nama_produk', value: prodName, label: 'Nama Produk' },
-          { key: 'tipe_produk', value: productType, label: 'Tipe Produk' },
-          { key: 'serial_number', value: serialNum, label: 'Serial Number' },
-          { key: 'kuantitas_unit', value: kuantitasToSend, label: 'Kuantitas Unit' },
-          { key: 'kontak_customer', value: kontakCust, label: 'Kontak Customer' },
-          { key: 'merk_produk', value: merkProd, label: 'Merk Produk' },
-          { key: 'deskripsi_masalah', value: deskMas, label: 'Deskripsi Masalah' },
-          { key: 'estimasi_penyelesaian', value: estimasi, label: 'Estimasi Penyelesaian' },
-          { key: 'penyebab_masalah', value: masalah, label: 'Penyebab Masalah' },
-          { key: 'koreksi', value: koreksi, label: 'Koreksi' },
-          { key: 'tindakan_koreksi_capa', value: Capa, label: 'Tindakan Koreksi CAPA' },
-        ];
-      
-      if(isDraft && kuantitas === '' || kuantitas === null){
-          alert(
-            'Mohon isi kuantitas unit.'
-          );   
+      const { uploadUrl, key } = presignRes.data;
+
+      // Step 2: upload file directly to S3
+      await axios.put(uploadUrl, {
+        uri: image.uri,
+        type: image.type || "image/jpeg",
+        name: image.fileName || "photo.jpg",
+      }, {
+        headers: {
+          "Content-Type": image.type || "image/jpeg",
+        },
+      });
+
+      // Step 3: return S3 key
+      return key;
+
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      throw new Error("Image upload failed");
+    }
+  };
+
+  /**
+   * Submit a tech-service form to the backend.
+   * - Creates visit first, then submits service detail for that visit.
+   * - Uses FormData for service detail + optional images.
+   */
+  const handleSubmit = async ({ isDraft }) => {
+    const isEmpty = (v) => v === null || v === undefined || v === "" || v === 0;
+
+    try {
+      const baseUrl = "http://192.168.1.12:3000";
+
+      const [userIdRaw, token] = await Promise.all([
+        AsyncStorage.getItem("user_id"),
+        AsyncStorage.getItem("token"),
+      ]);
+
+      if (!token) throw new Error("Missing auth token");
+
+      const userId = Number(userIdRaw);
+      if (!userIdRaw || Number.isNaN(userId)) {
+        alert("Missing/invalid user_id. Please log in again.");
+        return;
       }
 
+      const headers = buildAuthHeaders(token);
 
+      const kuantitasToSend = kuantitas?.value ?? kuantitas ?? "";
+      const lokasiToSend = lokasi?.label ?? lokasi ?? "";
+
+      // Draft validation
+      if (isDraft && isEmpty(kuantitasToSend)) {
+        alert("Mohon isi kuantitas unit.");
+        return;
+      }
+
+      // Final-submit validation only
       if (!isDraft) {
+        const requiredFields = [
+          { value: prodName, label: "Nama Produk" },
+          { value: productType, label: "Tipe Produk" },
+          { value: serialNum, label: "Serial Number" },
+          { value: merkProd, label: "Merk Produk" },
+          { value: fotoAlat?.uri, label: "Foto Alat" },
+          { value: fotoKoreksi?.uri, label: "Foto Koreksi" },
+          { value: fotoCapa?.uri, label: "Foto CAPA" },
+        ];
 
-        const missing = requiredFields.filter(
-          f => f.value === null || f.value === undefined || f.value === '' || f.value === 0
-        );
-
-        if (missing.length > 0) {
+        const missing = requiredFields.filter((f) => isEmpty(f.value));
+        if (missing.length) {
           alert(
             `Please complete required fields:\n${missing
-              .map(f => `• ${f.label}`)
-              .join('\n')}`
+              .map((f) => `• ${f.label}`)
+              .join("\n")}`
           );
           return;
         }
       }
 
-      const formData = new FormData();
-      requiredFields.forEach(f => {
-        formData.append(f.key, f.value ?? '');
-      });
+      let device_before_service_photoKey = null;
+      if (fotoAlat?.uri) {
+        device_before_service_photoKey = await uploadImageToS3(fotoAlat);
+      }
 
-      // formData.append('user_id', userId);
-      // formData.append('nama_customer', namaCust ?? '');
-      // formData.append('nama_faskes', lokasiToSend);
-      // formData.append('tanggal_pengambilan', tgl ?? '');
-      // formData.append('nama_produk', prodName ?? '');
-      // formData.append('tipe_produk', productType ?? '');
-      // formData.append('serial_number', serialNum ?? '');
-      // formData.append('kuantitas_unit', kuantitasToSend);
-      // formData.append('merk_produk', merkProd ?? '');
-      // formData.append('deskripsi_masalah', deskMas ?? '');
-      // formData.append('estimasi_penyelesaian', estimasi ?? '');
-      // formData.append('penyebab_masalah', masalah ?? '');
-      // formData.append('koreksi', koreksi ?? '');
-      // formData.append('tindakan_koreksi_capa', Capa ?? '');
-      // formData.append('kontak_customer', kontakCust ?? '');
+      let corrective_proofKey = null;
+      if (fotoKoreksi?.uri) {
+        corrective_proofKey = await uploadImageToS3(fotoKoreksi);
+      }
 
-      appendImageIfExists(formData, 'tindakan_koreksi_img', fotoCapa);
-      appendImageIfExists(formData, 'foto_alat_sebelum_service', fotoAlat);
-      appendImageIfExists(formData, 'bukti_koreksi', fotoKoreksi);
+      let capa_action_imageKey = null;
+      if (fotoCapa?.uri) {
+        capa_action_imageKey = await uploadImageToS3(fotoCapa);
+      }
 
-      // Let axios set multipart boundary
-      const response = await axios.post(url, formData);
+      const visitPayload = {
+        user_id: userId,
+        customer_id: 1,
+        visited_at: new Date().toISOString(),
+        visit_type: "technician_service",
+        latitude: null,
+        longitude: null,
+        is_draft: Number(isDraft),
+      };
 
-      console.info('Form upload successful:', response.status);
-      alert('Form submitted successfully!');
-      return response.data;
+      const visitRes = await axios.post(getVisitsUrl(baseUrl), visitPayload, { headers });
+
+      const visitId =
+        visitRes?.data?.id ??
+        visitRes?.data?.data?.id ??
+        visitRes?.data?.visit?.id;
+
+      if (!visitId) throw new Error("Visit created but visitId not returned");
+
+      let resolvedProdId = prodId;
+
+      if (!prodExist) {
+        const prodBody = {
+          serial_number: serialNumber,
+          product_name: prodName,
+          product_type: tipeProd,
+          brand_name: merkProd,
+        };
+
+        const result = await getOrCreateProduct(prodBody);
+        resolvedProdId = result?.product?.id;
+        setProdID(resolvedProdId);
+      }
+
+      const serviceDetailPayload = {
+        product_id: resolvedProdId,
+        customer_name: namaCust,
+        unit_quantity: kuantitasToSend,
+        customer_contact: kontakCust,
+        healthcare_facility_name: lokasiToSend,
+        pickup_date: tgl,
+        root_cause: masalah,
+        resolution_estimate: estimasi,
+        issue_description: deskMas,
+        corrective_action: koreksi,
+        capa_action: Capa,
+        device_before_service_photo: device_before_service_photoKey,
+        corrective_proof: corrective_proofKey,
+        capa_action_image: capa_action_imageKey,
+        is_draft: Number(isDraft),
+      };
+
+      const serviceRes = await axios.post(
+        getServiceUrl(baseUrl, visitId),
+        serviceDetailPayload,
+        {
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.info("Form upload successful:", serviceRes.status);
+      alert(isDraft ? "Draft saved!" : "Form submitted successfully!");
+      return serviceRes.data;
     } catch (err) {
       const payload = err.response?.data ?? err.message ?? err;
-      console.error('handleSubmit failed:', payload);
-      alert('Failed to submit form. Please try again.');
+      console.error("handleSubmit failed:", payload);
+      alert("Failed to submit form. Please try again.");
       throw err;
     }
   };
@@ -211,22 +310,24 @@ export default function Form4screen({ navigation }) {
   const onSave = () => handleSubmit({ isDraft: true });
 
   const onSerialBlur = async (e) => {
+    const baseUrl = 'http://192.168.1.12:3000'
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
     try {
       const res = await fetch(
-        `${API_BASE}/api/forms/products/by-serial/${serial}`
+        `${baseUrl}/api/products/by-serial/${serial}`
       );
 
       if (res.ok) {
         const data = await res.json();
 
         if (data.exists) {
-          setProdName(data.product.nama_produk);
-          setProductType(data.product.tipe_produk);
-          setMerk(data.product.merk_produk);
+          setProdName(data.product.product_name);
+          setProductType(data.product.product_type);
+          setMerk(data.product.brand_name);
           setProdExist(true);
+          setProdID(data.product.id);
         } else {
           setProdExist(false);
         }
@@ -241,6 +342,7 @@ export default function Form4screen({ navigation }) {
   const showBottomBar = !keyboardVisible && !dropdownOpen;
   const rightTitle = page !== 3 ? "Next" : "Submit";
   const leftDisabled = page === 1;
+
   const handleRightPress = () => {
     if (page < 3) goNext();
     else handleSubmit();
@@ -255,6 +357,7 @@ export default function Form4screen({ navigation }) {
         enableOnAndroid
         extraScrollHeight={Platform.OS === "ios" ? 20 : 100}
         keyboardOpeningTime={0}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
           <View style={styles.progressRow}>
@@ -328,10 +431,7 @@ export default function Form4screen({ navigation }) {
             onRightPress={handleRightPress}
             leftDisabled={leftDisabled}
             onSave = {onSave}
-            onSubmit={() => {
-              // fallback: call submit directly
-              onSubmit
-            }}
+            onSubmit={onSubmit}
           />
         </View>
       )}

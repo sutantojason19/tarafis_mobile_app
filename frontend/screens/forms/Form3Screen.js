@@ -27,14 +27,13 @@
  * should be separated when the project grows.
  */
 import API_BASE from "../../config/api";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Platform,
   Keyboard,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -80,8 +79,13 @@ export default function Form3screen({ navigation }) {
   const [fotoBa, setFotoBA] = useState("");
   const [prodExist, setProdExist] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
-  
+  const [prodId, setProdId] = useState(false);
 
+  const scrollRef = useRef(null);
+  
+   useEffect(() => {
+      scrollRef.current?.scrollToPosition?.(0, 0, false);
+    }, [page]);
 
   /**
    * Format date for MariaDB (YYYY-MM-DD)
@@ -92,22 +96,27 @@ export default function Form3screen({ navigation }) {
   };
 
   const onSerialBlur = async (e) => {
+    console.log('in correct method')
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
+    const baseUrl = 'http://192.168.1.12:3000'
+
     try {
       const res = await fetch(
-        `${API_BASE}/api/forms/products/by-serial/${serial}`
+        `${baseUrl}/api/products/by-serial/${serial}`
       );
 
       if (res.ok) {
         const data = await res.json();
 
         if (data.exists) {
-          setProdName(data.product.nama_produk);
-          setTipeProd(data.product.tipe_produk);
-          setMerk(data.product.merk_produk);
+          setProdName(data.product.product_name);
+          setTipeProd(data.product.product_type);
+          setMerk(data.product.brand_name);
           setProdExist(true);
+          setProdId(data.product.id);
+
         } else {
           setProdExist(false);
         }
@@ -137,94 +146,307 @@ export default function Form3screen({ navigation }) {
     };
   }, []);
 
+  
   /** Pagination handlers */
   const goNext = () => setPage((p) => Math.min(3, p + 1));
   const goBack = () => setPage((p) => Math.max(1, p - 1));
 
-  /**
-   * handleSubmit() — Submit final form to backend
-   */
-  const handleSubmit = async ({isDraft}) => {
+  const getVisitsUrl = (baseUrl) => `${baseUrl}/api/visits`;
+  const getActivityUrl = (baseUrl, visitId) => `${baseUrl}/api/visits/${visitId}/activity`;
+
+  const buildAuthHeaders = (token) => ({
+    Authorization: `Bearer ${token}`,
+  });
+
+  const getOrCreateProduct = async (body) => {
     try {
-      const userId = await AsyncStorage.getItem("user_id");
+      const token = await AsyncStorage.getItem("token");
 
-      const nameToSend  = technicianName?.value ?? technicianName ?? "";
-      const otherTech   = tekLain?.value ?? tekLain ?? "";
-      const qtyToSend   = kuantitas?.label ?? kuantitas ?? "";
-      const hospitalName = hospital?.value ?? hospital ?? "";
+      const baseUrl = "http://192.168.1.12:3000";
 
-      // 1. Define all fields in one place
-      const formFields = [
-        { key: 'user_id', value: userId, label: 'User' },
-        { key: 'tanggal_aktivitas', value: tgl_aktivitas, label: 'Tanggal Aktivitas' },
-        { key: 'nama_teknisi', value: nameToSend, label: 'Nama Teknisi' },
-        { key: 'nama_lokasi', value: hospitalName, label: 'Nama Lokasi' },
-        { key: 'alamat_lokasi', value: lokasi, label: 'Alamat Lokasi' },
-        { key: 'teknisi_lain', value: otherTech, label: 'Teknisi Lain' },
-        { key: 'nama_produk', value: prodName, label: 'Nama Produk' },
-        { key: 'tipe_produk', value: tipeProd, label: 'Tipe Produk' },
-        { key: 'serial_number', value: serialNumber, label: 'Serial Number' },
-        { key: 'kuantitas_unit', value: qtyToSend, label: 'Kuantitas Unit' },
-        { key: 'merk_produk', value: merkProd, label: 'Merk Produk' },
-        { key: 'nomor_berita_acara', value: beritaAcara, label: 'Nomor Berita Acara' },
-        { key: 'tujuan_kunjungan', value: visitPurpose, label: 'Tujuan Kunjungan' },
-        { key: 'notes', value: notes, label: 'Catatan' },
-      ];
+      const response = await axios.post(
+        `${baseUrl}/api/products/get-or-create`,
+        body,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
-      if(isDraft && kuantitas === '' || kuantitas === null){
-          alert(
-            'Mohon isi kuantitas unit.'
-          );   
+      console.log("Result:", response.data);
+      return response.data;
+
+    } catch (err) {
+      console.log("Error:", err.response?.data || err.message);
+      throw err;
+    }
+  };
+
+  // Normalize picker/value shapes
+  const pickValue = (x, fallback = "") => (x?.value ?? x?.label ?? x ?? fallback);
+
+  // Consider trimming strings so "   " is treated as empty
+  const isEmpty = (v) => v == null || (typeof v === "string" && v.trim() === "") || v === 0;
+
+  // Turn [{key,value}] into { key: value }
+  const fieldsToObject = (fields) =>
+    fields.reduce((acc, f) => {
+      acc[f.key] = f.value;
+      return acc;
+    }, {});
+
+    // Build FormData from fields + optional files
+    const buildActivityFormData = ({ fields, fotoKegiatan, fotoBa }) => {
+    const fd = new FormData();
+
+    // Append scalar fields
+    for (const f of fields) {
+      // FormData wants strings; allow numbers/dates but stringify safely
+      const value =
+        f.value instanceof Date
+          ? f.value.toISOString()
+          : f.value?.toString?.() ?? "";
+      fd.append(f.key, value);
+    }
+
+    // Append files (React Native style)
+    if (fotoKegiatan?.uri) {
+      fd.append("selfie_photo", {
+        uri: fotoKegiatan.uri,
+        name: fotoKegiatan.fileName || "selfie.jpg",
+        type: fotoKegiatan.type || "image/jpeg",
+      });
+    }
+
+    if (fotoBa?.uri) {
+      fd.append("attendance_document_photo", {
+        uri: fotoBa.uri,
+        name: fotoBa.fileName || "attendance.jpg",
+        type: fotoBa.type || "image/jpeg",
+      });
+    }
+
+    return fd;
+  };
+
+  const uploadImageToS3 = async (image) => {
+    if (!image || !image.uri) return null;
+
+    try {
+      const baseUrl = "http://192.168.1.12:3000";
+
+      // Step 1: ask backend for presigned URL
+      const presignRes = await axios.post(`${baseUrl}/api/uploads/presign`, {
+        fileName: image.fileName || "photo.jpg",
+        contentType: image.type || "image/jpeg",
+      });
+
+      const { uploadUrl, key } = presignRes.data;
+
+      // Step 2: upload file directly to S3
+      await axios.put(uploadUrl, {
+        uri: image.uri,
+        type: image.type || "image/jpeg",
+        name: image.fileName || "photo.jpg",
+      }, {
+        headers: {
+          "Content-Type": image.type || "image/jpeg",
+        },
+      });
+
+      // Step 3: return S3 key
+      return key;
+
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      throw new Error("Image upload failed");
+    }
+  };
+
+  /**
+   * handleSubmit — Submit technician activity form to backend
+   * - Auth validation
+   * - Normalize / prepare values
+   * - Upload images
+   * - Ensure product exists
+   * - Validate draft vs final submit
+   * - Create visit header
+   * - Create activity detail
+   */
+  const handleSubmit = async ({isDraft}) => { 
+    const baseURL = 'http://192.168.1.12:3000';
+
+    const fail = (message, extra = null) => {
+      if (extra) console.error(message, extra);
+      alert(message);
+      return null;
+    };
+
+    const getVisitId = (data) =>
+      data?.id ?? data?.visit_id ?? data?.data?.id ?? null;
+
+    const uploadIfPresent = async (file) => {
+      if (file?.uri) {
+        return await uploadImageToS3(file);
+      }
+      return null;
+    };
+
+    const buildAxiosConfig = (token) => ({
+      headers: {
+        ...buildAuthHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      timeout: 20000,
+    });
+
+    try {
+      // 1) Auth
+      const [userIdRaw, token] = await Promise.all([
+        AsyncStorage.getItem('user_id'),
+        AsyncStorage.getItem('token'),
+      ]);
+
+      if (!token) {
+        return fail('Session expired. Please login again.');
       }
 
-      // 2. Validate only if not draft
-      if (!isDraft) {
-        const missing = formFields.filter(
-          f => f.value == null || f.value === '' || f.value === 0
-        );
+      const userId = Number(userIdRaw);
+      if (!userIdRaw || Number.isNaN(userId)) {
+        return fail('Missing/invalid user_id. Please login again.');
+      }
 
-        if (missing.length > 0) {
-          alert(
-            `Tolong isi:\n${missing
-              .map(f => `• ${f.label}`)
-              .join('\n')}`
+      // 2) Normalize / prepare values
+      const technicianNameValue = pickValue(technicianName);
+      const additionalTechniciansValue = pickValue(tekLain);
+      const quantityValue = pickValue(kuantitas);
+      const hospitalNameValue = pickValue(hospital);
+
+      // 3) Upload images first
+      const [selfiePhotoKey, attendancePhotoKey] = await Promise.all([
+        uploadIfPresent(fotoKegiatan),
+        uploadIfPresent(fotoBa),
+      ]);
+
+      // 4) Prepare product id
+      let resolvedProductId = prodId;
+
+      if (!prodExist) {
+        const productPayload = {
+          serial_number: serialNumber,
+          product_name: prodName,
+          product_type: tipeProd,
+          brand_name: merkProd,
+        };
+
+        const productResponse = await getOrCreateProduct(productPayload);
+        resolvedProductId = productResponse?.product?.id ?? null;
+      }
+
+      // 5) Build field definitions
+      const visitHeaderFields = [
+        { key: 'user_id', value: userId, label: 'User' },
+        { key: 'customer_id', value: 1, label: 'Customer ID' },
+        { key: 'visited_at', value: new Date().toISOString(), label: 'Visit Date' },
+        { key: 'visit_type', value: 'technician_activity', label: 'Visit Type' },
+        { key: 'note', value: notes, label: 'Notes' },
+        { key: 'latitude', value: null, label: 'Latitude' },
+        { key: 'longitude', value: null, label: 'Longitude' },
+        { key: 'is_draft', value: Number(isDraft), label: 'Draft' },
+      ];
+
+      const activityFields = [
+        { key: 'unit_quantity', value: quantityValue, label: 'Kuantitas Unit' },
+        { key: 'activity_date', value: tgl_aktivitas, label: 'Tanggal Aktivitas' },
+        { key: 'technician_name', value: technicianNameValue, label: 'Nama Teknisi' },
+        { key: 'location_name', value: hospitalNameValue, label: 'Nama Lokasi' },
+        { key: 'location_address', value: lokasi, label: 'Alamat Lokasi' },
+        { key: 'additional_technicians', value: additionalTechniciansValue, label: 'Teknisi Lain' },
+        { key: 'activity_purpose', value: visitPurpose, label: 'Tujuan Kunjungan' },
+        { key: 'activity_notes', value: notes, label: 'Catatan' },
+        { key: 'official_report_number', value: beritaAcara, label: 'Nomor Berita Acara' },
+        { key: 'product_id', value: resolvedProductId, label: 'Product Id' },
+        { key: 'is_draft', value: Number(isDraft), label: 'Draft' },
+        { key: 'selfie_photo', value: selfiePhotoKey, label: 'Foto Kegiatan' },
+        { key: 'attendance_document_photo', value: attendancePhotoKey, label: 'Foto Berita Acara' },
+      ];
+
+      // 6) Validation
+      // Draft: only require quantity
+      if (isDraft && isEmpty(quantityValue)) {
+        return fail('Mohon isi kuantitas unit.');
+      }
+
+      // Final submit: require all activity fields
+      // 6) Validation
+      // Draft: allow empty fields
+      // Final submit: require all activity fields
+      if (!isDraft) {
+        const missingFields = activityFields.filter((field) => isEmpty(field.value));
+
+        if (missingFields.length > 0) {
+          return fail(
+            `Tolong isi:\n${missingFields.map((field) => `• ${field.label}`).join('\n')}`
           );
-          return;
         }
       }
 
-      // 3. Build FormData after validation
-      const formData = new FormData();
-      formFields.forEach(f => {
-        formData.append(f.key, f.value ?? '');
+      const axiosCfg = buildAxiosConfig(token);
+
+      // 7) Create visit header
+      const visitPayload = fieldsToObject(visitHeaderFields);
+
+      const visitRes = await axios.post(
+        getVisitsUrl(baseURL),
+        visitPayload,
+        axiosCfg
+      );
+
+      const visitId = getVisitId(visitRes?.data);
+
+      if (!visitId) {
+        return fail('Failed to create visit (missing visitId).', visitRes?.data);
+      }
+
+      // 8) Create activity detail
+      const activityPayload = fieldsToObject(activityFields);
+
+      if (activityPayload.product_id != null) {
+        activityPayload.product_id = Number(activityPayload.product_id);
+      }
+
+      const activityRes = await axios.post(
+        getActivityUrl(baseURL, visitId),
+        activityPayload,
+        axiosCfg
+      );
+
+      alert(isDraft ? 'Draft saved.' : 'Submitted successfully!');
+      return activityRes?.data;
+    } catch (error) {
+      const status = error?.response?.status;
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        null;
+
+      console.error('handleSubmit failed:', {
+        status,
+        backendMessage,
+        data: error?.response?.data,
+        message: error?.message,
       });
 
-      if (fotoKegiatan?.uri) {
-        formData.append('selfie_foto_kegiatan', {
-          uri: fotoKegiatan.uri,
-          name: fotoKegiatan.fileName || 'photo.jpg',
-          type: 'image/jpeg',
-        });
+      if (status === 401) {
+        return fail('Session expired. Please login again.');
       }
 
-      if (fotoBa?.uri) {
-        formData.append('foto_ba_daftar_hadir', {
-          uri: fotoBa.uri,
-          name: fotoBa.fileName || 'photo.jpg',
-          type: 'image/jpeg',
-        });
+      if (status === 422) {
+        return fail(`Validation failed: ${backendMessage || 'Please check your input.'}`);
       }
 
-      const base = (API_URL || "").replace(/\/+$/, "");
-      const demoURL = 'http://192.168.1.14:3000';
-      const url = `${demoURL}/api/forms/tech-activity`;
-
-      await axios.post(url, formData);
-      alert("Form submitted successfully!");
-    } catch (error) {
-      const msg = error.response?.data ?? error.message ?? "Upload failed.";
-      console.error("Upload failed:", msg);
-      alert("Failed to submit form. Please try again.");
+      return fail(backendMessage || error?.message || 'Failed to submit form. Please try again.');
     }
   };
 
@@ -245,10 +467,11 @@ export default function Form3screen({ navigation }) {
     <SafeAreaView style={styles.screen}>
       <FormHeader title="Technician Activity" navigation={navigation} />
 
-      <KeyboardAwareScrollView
+      <KeyboardAwareScrollView ref={scrollRef}
         contentContainerStyle={styles.scrollContainer}
         enableOnAndroid
         extraScrollHeight={Platform.OS === "ios" ? 20 : 100}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
           {/* Progress Bar */}
@@ -273,7 +496,7 @@ export default function Form3screen({ navigation }) {
                 onSelect={setTechnicianName}
               />
 
-              <InputBox value={hospital} title="Nama Lokasi" onChangeText={hospital} />
+              <InputBox value={hospital} title="Nama Lokasi" onChangeText={setHospital} />
 
 
               <InputBox value={lokasi} title="Alamat Lokasi" onChangeText={setLokasi} />

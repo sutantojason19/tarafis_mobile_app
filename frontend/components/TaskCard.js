@@ -134,7 +134,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginTop: 15,
   },
-
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',

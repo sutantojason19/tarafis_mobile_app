@@ -25,7 +25,6 @@
  * - Image upload endpoint is expected at `${uploadingHost}/uploads` and returns JSON with `filename`.
  * - This file uses Expo APIs (Print, FileSystem, Sharing) and expo-image-picker via CameraInput component.
  */
-
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
@@ -35,9 +34,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Alert,
-  ScrollView,
   Platform,
-  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -47,6 +44,21 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@env';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+
+/* ------------------------------------------------------------------
+ * Constants
+ * ------------------------------------------------------------------ */
+
+const IMAGE_FIELDS_BY_TYPE = {
+  sales: ['visit_documentation'],
+  technician_activity: ['selfie_photo', 'attendance_document_photo'],
+  technician_service: [
+    'corrective_proof',
+    'capa_action_image',
+    'device_before_service_photo',
+  ],
+};
 
 /* ------------------------------------------------------------------
  * Component
@@ -69,16 +81,23 @@ export default function CardInfo(props) {
   // Data source: explicit prop -> route param -> null
   const data = dataProp ?? route?.params?.data ?? null;
 
-  // Host used to build preview URLs and upload endpoint.
-  // Prefer explicit prop (useful in tests), otherwise use empty string (will fallback later).
-  const uploadingHost = uploadingHostProp ?? '';
+  // Prefer explicit prop, otherwise env, otherwise fallback host
+  // const apiHost =
+  //   (uploadingHostProp && String(uploadingHostProp).replace(/\/$/, '')) ||
+  //   (API_URL && String(API_URL).replace(/\/$/, '')) ||
+  //   'http://192.168.1.14:3000';
+
+   const apiHost = 'http://192.168.1.11:3000';
+   console.log(apiHost)
 
   // Local editable copy of the record
   const [local, setLocal] = useState(data ? { ...data } : null);
   const [saving, setSaving] = useState(false);
   const [showDatePickerKey, setShowDatePickerKey] = useState(null);
-
-  // Safe callbacks: if parent doesn't provide onSave/onCancel, provide sensible defaults.
+  const [resolvedImageUrls, setResolvedImageUrls] = useState({});
+  const [loadingImages, setLoadingImages] = useState(false);
+  
+  // Safe callbacks
   const safeOnSave = onSave || (async () => {});
   const safeOnCancel =
     onCancel ||
@@ -86,7 +105,7 @@ export default function CardInfo(props) {
       if (navigation && navigation.goBack) navigation.goBack();
     });
 
-  // When the source `data` changes (navigation param or prop), reset local state
+  // When source data changes, reset local state
   useEffect(() => {
     setLocal(data ? { ...data } : null);
   }, [data]);
@@ -95,16 +114,170 @@ export default function CardInfo(props) {
    * Small helper utilities
    * ------------------------- */
 
-  // Detect likely image keys (field names containing foto/dokumentasi/selfie/bukti)
-  const isImageKey = useCallback((k) => /foto|dokumentasi|selfie|bukti/i.test(k), []);
+  // Detect likely image keys
+  const isImageKey = useCallback((k) => /foto|dokumentasi|selfie|bukti|proof|image|photo/i.test(k), []);
 
-  // Fields that should be displayed as read-only
-  const isReadOnlyKey = useCallback(
-    (k) => ['id', 'form_id', 'user_id', 'created_at', 'updated_at', 'form_type'].includes(k),
-    []
+  // Exact image field detection for your forms
+  const isKnownImageField = useCallback((k) => {
+    return Object.values(IMAGE_FIELDS_BY_TYPE).some((fields) => fields.includes(k));
+  }, []);
+
+  const isLikelyS3Key = useCallback((value) => {
+    if (!value || typeof value !== 'string') return false;
+    if (value.startsWith('http://') || value.startsWith('https://')) return false;
+    return true;
+  }, []);
+
+  const getImageFieldsForType = useCallback((visitType) => {
+    return IMAGE_FIELDS_BY_TYPE[visitType] || [];
+  }, []);
+
+  const getSignedImageUrl = useCallback(
+    async (key) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+
+        const response = await fetch(
+          `${apiHost}/api/uploads/image?key=${encodeURIComponent(key)}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        let json = null;
+        try {
+          json = await response.json();
+        } catch (e) {}
+
+        if (!response.ok) {
+          throw new Error(json?.message || `Failed to get signed image URL (${response.status})`);
+        }
+
+        return json?.imageUrl || null;
+      } catch (error) {
+        console.error('getSignedImageUrl error:', error?.message || error);
+        return null;
+      }
+    },
+    [apiHost]
   );
 
-  // Title case: "nama_lokasi" -> "Nama Lokasi"
+  const resolveExistingImages = useCallback(
+    async (obj) => {
+      if (!obj?.visit_type) {
+        setResolvedImageUrls({});
+        return;
+      }
+
+      const imageFields = getImageFieldsForType(obj.visit_type);
+      if (!imageFields.length) {
+        setResolvedImageUrls({});
+        return;
+      }
+
+      setLoadingImages(true);
+
+      try {
+        const nextImageUrls = {};
+
+        for (const field of imageFields) {
+          const value = obj[field];
+
+          if (!value) continue;
+
+          // New unsaved image selected in UI
+          if (typeof value === 'object' && value.__new && value.uri) {
+            nextImageUrls[field] = value.uri;
+            continue;
+          }
+
+          // Already a full URL
+          if (typeof value === 'string' && !isLikelyS3Key(value)) {
+            nextImageUrls[field] = value;
+            continue;
+          }
+
+          // Stored DB key -> resolve signed URL
+          if (typeof value === 'string' && isLikelyS3Key(value)) {
+            const signedUrl = await getSignedImageUrl(value);
+            if (signedUrl) {
+              nextImageUrls[field] = signedUrl;
+            }
+          }
+        }
+
+        setResolvedImageUrls(nextImageUrls);
+      } catch (err) {
+        console.error('resolveExistingImages failed:', err?.message || err);
+        setResolvedImageUrls({});
+      } finally {
+        setLoadingImages(false);
+      }
+    },
+    [getImageFieldsForType, getSignedImageUrl, isLikelyS3Key]
+  );
+
+  useEffect(() => {
+    if (!local) {
+      setResolvedImageUrls({});
+      return;
+    }
+
+    resolveExistingImages(local);
+  }, [local?.id, local?.visit_type, resolveExistingImages]);
+
+  // Read-only fields
+  const READ_ONLY_SALES_FIELDS = new Set([
+    'visit_id',
+    'is_draft',
+    'visit_form_type',
+  ]);
+
+  const READ_ONLY_ACTIVITY_FIELDS = new Set([
+    'visit_id',
+    'is_draft',
+    'product_id',
+  ]);
+
+  const VISIT_EDITABLE_FIELDS = new Set([
+    'latitude',
+    'longitude',
+    'note',
+  ]);
+
+  const READ_ONLY_VISIT_FIELDS = new Set([
+    'id',
+    'user_id',
+    'customer_id',
+    'visited_at',
+    'visit_type',
+    'is_draft',
+    'sales_category',
+    'created_at',
+    'updated_at',
+    'visit_id',
+    'product_id',
+  ]);
+
+  // Hidden fields
+  const HIDDEN_FIELDS = new Set([
+    'deleted_at',
+    'form_type',
+  ]);
+
+  // Combined read-only fields
+  const READ_ONLY_FIELDS = new Set([
+    ...READ_ONLY_VISIT_FIELDS,
+    ...READ_ONLY_ACTIVITY_FIELDS,
+    ...READ_ONLY_SALES_FIELDS,
+  ]);
+
+  const isReadOnlyKey = useCallback((k) => READ_ONLY_FIELDS.has(k), []);
+  const isHiddenKey = useCallback((k) => HIDDEN_FIELDS.has(k), []);
+
   const titleCase = (raw = '') =>
     raw
       .replace(/_/g, ' ')
@@ -113,10 +286,10 @@ export default function CardInfo(props) {
       .map((w) => w[0].toUpperCase() + w.slice(1))
       .join(' ');
 
-  // Set of keys to hide when null/empty (used to reduce clutter)
-  const SKIP_IF_NULL = useMemo(() =>
-    new Set(['nama_user', 'jabatan_user', 'users_json', 'status_kunjungan']),
-  []);
+  const SKIP_IF_NULL = useMemo(
+    () => new Set(['nama_user', 'jabatan_user', 'users_json', 'status_kunjungan']),
+    []
+  );
 
   const renderUsersField = (users) => {
     if (!Array.isArray(users) || users.length === 0) return null;
@@ -149,13 +322,14 @@ export default function CardInfo(props) {
     );
   };
 
+  const HIDE_LAT_LNG_VISIT_TYPES = new Set([
+    'technician_activity',
+    'technician_service',
+  ]);
 
-
-  // Compute keys to render and their order:
-  // - Prioritize commonly important fields using `priority` array
-  // - Filter out keys that should be skipped when empty
   const safeKeys = useMemo(() => {
     if (!local) return [];
+
     const priority = [
       'nama_lokasi',
       'nama_customer',
@@ -166,30 +340,45 @@ export default function CardInfo(props) {
       'tanggal_aktivitas',
       'tanggal_pengambilan',
     ];
+
     const keys = Object.keys(local);
 
-    // Put priority fields first, then others
-    const ordered = [...priority.filter((k) => keys.includes(k)), ...keys.filter((k) => !priority.includes(k))];
+    const ordered = [
+      ...priority.filter((k) => keys.includes(k)),
+      ...keys.filter((k) => !priority.includes(k)),
+    ];
 
-    // Filter according to SKIP_IF_NULL and preserve read-only keys
     const filtered = ordered.filter((k) => {
+      if (isHiddenKey(k)) return false;
+
+      const visitType = local?.visit_type;
+
+      if (
+        HIDE_LAT_LNG_VISIT_TYPES.has(visitType) &&
+        (k === 'latitude' || k === 'longitude')
+      ) {
+        return false;
+      }
+
       if (isReadOnlyKey(k)) return true;
+
       if (SKIP_IF_NULL.has(k)) {
         const v = local[k];
         if (v === null || typeof v === 'undefined') return false;
         if (typeof v === 'string' && v.trim() === '') return false;
       }
+
       return true;
     });
 
     return filtered;
-  }, [local, isReadOnlyKey, SKIP_IF_NULL]);
+  }, [local, isReadOnlyKey, isHiddenKey, SKIP_IF_NULL]);
 
   /**
    * uploadNewImages
    *
    * Finds fields that are newly selected images (`{ __new: true, uri, fileName, type }`),
-   * uploads them to `${uploadingHost}/uploads`, and replaces the field value with the returned filename.
+   * uploads them to `${apiHost}/uploads`, and replaces the field value with the returned filename.
    *
    * Returns a new object with updated values.
    */
@@ -197,38 +386,73 @@ export default function CardInfo(props) {
     async (obj) => {
       const updated = { ...obj };
 
-      // Find keys whose value signals a new image object
       const imageKeys = Object.keys(updated).filter(
-        (k) => isImageKey(k) && updated[k] && typeof updated[k] === 'object' && updated[k].__new
+        (k) =>
+          (isImageKey(k) || isKnownImageField(k)) &&
+          updated[k] &&
+          typeof updated[k] === 'object' &&
+          updated[k].__new
       );
 
       if (imageKeys.length === 0) return updated;
 
-      // Create upload promises
       const uploads = imageKeys.map(async (k) => {
         const file = updated[k];
-        const fd = new FormData();
-        fd.append('file', {
-          name: file.fileName || `upload_${Date.now()}.jpg`,
-          type: file.type || 'image/jpeg',
-          uri: Platform.OS === 'ios' ? file.uri.replace('file://', '') : file.uri,
+        const token = await AsyncStorage.getItem('token');
+
+        // 1. Ask backend for presigned upload URL
+        const presignResp = await fetch(`${apiHost}/api/uploads/presign`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            fileName: file.fileName || `upload_${Date.now()}.jpg`,
+            contentType: file.type || 'image/jpeg',
+            folder: 'uploads',
+          }),
         });
 
-        // Upload to /uploads endpoint on uploadingHost
-        const resp = await fetch(`${uploadingHost}/uploads`, { method: 'POST', body: fd });
+        let presignJson = null;
+        try {
+          presignJson = await presignResp.json();
+        } catch (e) {}
 
-        if (!resp.ok) {
-          // try to read response text for helpful error
-          const t = await resp.text().catch(() => null);
-          throw new Error(`Upload failed${t ? `: ${t}` : ''}`);
+        if (!presignResp.ok) {
+          throw new Error(
+            presignJson?.message || `Failed to create presigned upload (${presignResp.status})`
+          );
         }
 
-        const json = await resp.json();
-        // Support multiple possible server response keys: filename / fileName / name
-        return { key: k, filename: json.filename || json.fileName || json.name };
+        const uploadUrl = presignJson?.uploadUrl;
+        const uploadedKey = presignJson?.key;
+
+        if (!uploadUrl || !uploadedKey) {
+          throw new Error('Presign response missing uploadUrl or key');
+        }
+
+        // 2. Read local file into blob
+        const localFileResp = await fetch(file.uri);
+        const blob = await localFileResp.blob();
+
+        // 3. Upload directly to S3
+        const s3UploadResp = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': file.type || 'image/jpeg',
+          },
+          body: blob,
+        });
+
+        if (!s3UploadResp.ok) {
+          throw new Error(`S3 upload failed (${s3UploadResp.status})`);
+        }
+
+        // 4. Save returned S3 key into form data
+        return { key: k, filename: uploadedKey };
       });
 
-      // Wait for all uploads and update values
       const results = await Promise.all(uploads);
       results.forEach((r) => {
         updated[r.key] = r.filename;
@@ -236,7 +460,7 @@ export default function CardInfo(props) {
 
       return updated;
     },
-    [isImageKey, uploadingHost]
+    [apiHost, isImageKey, isKnownImageField]
   );
 
   /* -------------------------
@@ -253,11 +477,34 @@ export default function CardInfo(props) {
     );
   };
 
+  const formatDisplayValue = (key, value) => {
+    if (value == null) return '';
+
+    if (
+      /tanggal|date|visited_at|created_at|updated_at/i.test(key) &&
+      typeof value === 'string'
+    ) {
+      const d = new Date(value);
+
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+    }
+
+    return String(value);
+  };
+
   const renderReadOnly = (key, value) => (
     <View key={key} style={styles.row}>
       {renderLabel(key)}
       <View style={styles.readOnlyBox}>
-        <Text style={styles.readOnlyText}>{String(value ?? '')}</Text>
+        <Text style={styles.readOnlyText}>{formatDisplayValue(key, value)}</Text>
       </View>
     </View>
   );
@@ -282,7 +529,9 @@ export default function CardInfo(props) {
       <View key={key} style={styles.row}>
         <Text style={styles.label}>{titleCase(key)}</Text>
         <TouchableOpacity onPress={() => setShowDatePickerKey(key)} style={styles.formInput}>
-          <Text style={styles.inputText}>{dateVal ? dateVal.toISOString().slice(0, 10) : 'Select date'}</Text>
+          <Text style={styles.inputText}>
+            {dateVal ? dateVal.toISOString().slice(0, 10) : 'Select date'}
+          </Text>
         </TouchableOpacity>
 
         {showDatePickerKey === key && (
@@ -300,11 +549,10 @@ export default function CardInfo(props) {
     );
   };
 
-  // Render image field using CameraInput. Supports removing the image.
   const renderImageField = (key) => {
     const val = local[key];
     const isNew = val && typeof val === 'object' && val.__new;
-    const uri = isNew ? val.uri : val ? `${uploadingHost}/uploads/${val}` : null;
+    const uri = isNew ? val.uri : resolvedImageUrls[key] || null;
 
     return (
       <View key={key} style={styles.row}>
@@ -325,22 +573,38 @@ export default function CardInfo(props) {
                   type: asset.type,
                 },
               }));
+              setResolvedImageUrls((prev) => ({
+                ...prev,
+                [key]: asset.uri,
+              }));
             }}
           />
         </View>
 
-        <TouchableOpacity onPress={() => setLocal((p) => ({ ...p, [key]: null }))} style={[styles.smallBtn, { marginTop: 8 }]}>
+        {loadingImages && !uri ? (
+          <ActivityIndicator style={{ marginTop: 8 }} />
+        ) : null}
+
+        <TouchableOpacity
+          onPress={() => {
+            setLocal((p) => ({ ...p, [key]: null }));
+            setResolvedImageUrls((prev) => ({
+              ...prev,
+              [key]: null,
+            }));
+          }}
+          style={[styles.smallBtn, { marginTop: 8 }]}
+        >
           <Text style={styles.smallBtnText}>Remove</Text>
         </TouchableOpacity>
       </View>
     );
   };
 
-  // Generic field renderer based on key name and content
   const renderField = (key) => {
-    if (key === 'form_type') return null; // hide the internal form_type field
+    if (isHiddenKey(key)) return null;
     if (isReadOnlyKey(key)) return renderReadOnly(key, local[key]);
-    if (isImageKey(key)) return renderImageField(key);
+    if (isImageKey(key) || isKnownImageField(key)) return renderImageField(key);
     if (/tanggal|date/i.test(key)) return renderDateField(key);
     return renderTextField(key);
   };
@@ -349,29 +613,34 @@ export default function CardInfo(props) {
    * Save / export logic
    * ------------------------- */
 
-  /**
-   * handleSave
-   *
-   * - Uploads new images first
-   * - Builds an "updates" object by diffing original data and local state
-   * - Sends PATCH request with changed fields only
-   * - On success updates local state and calls safeOnSave
-   */
   const handleSave = async () => {
     try {
-      if (!local) return Alert.alert('Error', 'Nothing to save.');
+      if (!local) {
+        Alert.alert('Error', 'Nothing to save.');
+        return;
+      }
 
-      // Minimal validation examples
-      if (!local.id) return Alert.alert('Error', 'Missing form id.');
-      if (!local.form_type) return Alert.alert('Error', 'Missing form_type.');
-      if (local.form_type === 'technician_activity' && (!local.nama_teknisi || !local.nama_teknisi.trim())) {
-        return Alert.alert('Validation', 'Nama teknisi is required');
+      if (!local.id) {
+        Alert.alert('Error', 'Missing form id.');
+        return;
+      }
+
+      if (!local.visit_type) {
+        Alert.alert('Error', 'Missing form_type.');
+        return;
+      }
+
+      if (
+        local.visit_type === 'technician_activity' &&
+        (!local.technician_name || !String(local.technician_name).trim())
+      ) {
+        Alert.alert('Validation', 'Nama teknisi is required');
+        return;
       }
 
       setSaving(true);
 
-      // 1) Upload all newly selected images (if any)
-      let withUploadedImages;
+      let withUploadedImages = local;
       try {
         withUploadedImages = await uploadNewImages(local);
       } catch (uploadErr) {
@@ -381,66 +650,93 @@ export default function CardInfo(props) {
         return;
       }
 
-      // 2) Diff original and new to produce minimal updates
       const original = data ?? {};
-      const protectedCols = new Set(['id', 'user_id', 'form_id', 'form_type', 'created_at', 'updated_at']);
 
-      const updatesRaw = {};
+      const protectedCols = new Set([
+        'id',
+        'user_id',
+        'form_id',
+        'form_type',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+        'visit_id',
+        'is_draft',
+        'visit_form_type',
+        'product_id',
+        'customer_id',
+        'visited_at',
+        'visit_type',
+        'sales_category',
+        'users_json',
+      ]);
+
+      const normalize = (v) => {
+        if (v instanceof Date) return v.toISOString();
+        if (v === null || typeof v === 'undefined') return null;
+
+        if (typeof v === 'string') {
+          const s = v.trim();
+
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+          const isoMatch = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.test(s);
+          if (isoMatch) return s;
+
+          return s;
+        }
+
+        try {
+          return JSON.stringify(v);
+        } catch {
+          return String(v);
+        }
+      };
+
+      const updates = {};
       for (const k of Object.keys(withUploadedImages)) {
         if (protectedCols.has(k)) continue;
+        if (isHiddenKey(k)) continue;
 
         const newVal = withUploadedImages[k];
         const origVal = original[k];
 
-        // Normalization for comparison (dates, strings, JSON)
-        const normalize = (v) => {
-          if (v instanceof Date) return v.toISOString();
-          if (v === null || typeof v === 'undefined') return null;
-          if (typeof v === 'string') {
-            const s = v.trim();
-            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-            const isoMatch = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.test(s);
-            if (isoMatch) return s;
-            return s;
-          }
-          try {
-            return JSON.stringify(v);
-          } catch {
-            return String(v);
-          }
-        };
-
         const n = normalize(newVal);
         const o = normalize(origVal);
 
-        const changed = (n === null && o !== null) || (n !== null && o === null) || (n !== null && o !== null && n !== o);
+        const changed =
+          (n === null && o !== null) ||
+          (n !== null && o === null) ||
+          (n !== null && o !== null && n !== o);
 
-        if (changed) updatesRaw[k] = newVal;
-      }
+        if (!changed) continue;
 
-      // 3) Build final updates payload (remove undefined, convert Date -> ISO)
-      const updates = {};
-      for (const [k, v] of Object.entries(updatesRaw)) {
-        if (!k || typeof k !== 'string') continue;
-        if (protectedCols.has(k)) continue;
-        if (typeof v === 'undefined') continue;
-
-        if (k === 'users_json' && typeof v !== 'string') {
-          updates[k] = JSON.stringify(v);
+        if (k === 'users_json' && typeof newVal !== 'string') {
+          updates[k] = JSON.stringify(newVal);
         } else {
-          updates[k] = v instanceof Date ? v.toISOString() : v;
+          updates[k] = newVal instanceof Date ? newVal.toISOString() : newVal;
         }
       }
 
-      // Nothing changed? notify parent and return
       if (Object.keys(updates).length === 0) {
-        await safeOnSave(withUploadedImages);
         setLocal(withUploadedImages);
-        setSaving(false);
-        return Alert.alert('No changes', 'Nothing to update.');
+        await resolveExistingImages(withUploadedImages);
+        await safeOnSave(withUploadedImages);
+        Alert.alert('No changes', 'Nothing to update.');
+        return;
       }
 
-      // 4) Get user_id from AsyncStorage (fallback to '1' if missing)
+      const visitUpdates = {};
+      const detailUpdates = {};
+
+      for (const [k, v] of Object.entries(updates)) {
+        if (VISIT_EDITABLE_FIELDS.has(k)) {
+          visitUpdates[k] = v;
+        } else {
+          detailUpdates[k] = v;
+        }
+      }
+
       let userId = '1';
       try {
         const stored = await AsyncStorage.getItem('user_id');
@@ -449,47 +745,94 @@ export default function CardInfo(props) {
         console.warn('Failed reading user_id from storage, using fallback "1"', e);
       }
 
-      // 5) Send PATCH request to server
-      const host = API_URL?.replace(/\/$/, '') || 'http://192.168.1.20:3000';
-      const url = `${host}/api/forms/${encodeURIComponent(local.form_type)}/${encodeURIComponent(local.id)}?user_id=${encodeURIComponent(
-        userId
-      )}`;
+      const host = apiHost;
+      const token = await AsyncStorage.getItem('token');
 
-      const resp = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
+      const visitId = withUploadedImages.visit_id || withUploadedImages.id;
 
-      // Attempt to parse json response (if any)
-      let respJson = null;
-      try {
-        respJson = await resp.json();
-      } catch (e) {
-        // ignore: server may return no body
+      if (!visitId) {
+        throw new Error('Missing visit id.');
       }
 
-      if (!resp.ok) {
-        const message = respJson?.message || `Update failed (status ${resp.status})`;
-        throw new Error(message);
+      let detailType = null;
+
+      if (
+        withUploadedImages.form_type === 'technician_activity' ||
+        withUploadedImages.visit_type === 'technician_activity'
+      ) {
+        detailType = 'activity';
+      } else if (
+        withUploadedImages.form_type === 'technician_service' ||
+        withUploadedImages.visit_type === 'technician_service'
+      ) {
+        detailType = 'service';
+      } else {
+        detailType = 'sales';
       }
 
-      const affectedRows = Number(
-        respJson?.affectedRows ?? respJson?.affected_rows ?? respJson?.affected ?? respJson?.changedRows ?? 0
-      );
+      if (Object.keys(visitUpdates).length > 0) {
+        const visitUrl = `${host}/api/visits/${encodeURIComponent(
+          visitId
+        )}/visit?user_id=${encodeURIComponent(userId)}`;
 
-      if (affectedRows === 0) {
-        Alert.alert('Warning', respJson?.message || 'Request succeeded but no rows were updated.');
+        const visitResp = await fetch(visitUrl, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(visitUpdates),
+        });
+
+        let visitJson = null;
+        try {
+          visitJson = await visitResp.json();
+        } catch (e) {
+          // ignore
+        }
+
+        if (!visitResp.ok) {
+          throw new Error(
+            visitJson?.message || `Failed to update visit header (status ${visitResp.status})`
+          );
+        }
       }
 
-      // 6) Success: update local state and notify parent
+      if (Object.keys(detailUpdates).length > 0) {
+        const detailUrl = `${host}/api/visits/${encodeURIComponent(
+          visitId
+        )}/${detailType}?user_id=${encodeURIComponent(userId)}`;
+
+        const detailResp = await fetch(detailUrl, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(detailUpdates),
+        });
+
+        let detailJson = null;
+        try {
+          detailJson = await detailResp.json();
+        } catch (e) {
+          // ignore
+        }
+
+        if (!detailResp.ok) {
+          throw new Error(
+            detailJson?.message || `Failed to update ${detailType} detail (status ${detailResp.status})`
+          );
+        }
+      }
+
       setLocal(withUploadedImages);
+      await resolveExistingImages(withUploadedImages);
       await safeOnSave(withUploadedImages);
       Alert.alert('Success', 'Form updated successfully.');
     } catch (err) {
       console.error('Save failed', err);
-      const friendly = err?.message ?? String(err);
-      Alert.alert('Save failed', friendly);
+      Alert.alert('Save failed', err?.message ?? String(err));
     } finally {
       setSaving(false);
     }
@@ -499,13 +842,11 @@ export default function CardInfo(props) {
    * Export to PDF
    * ------------------------- */
 
-  // Build a simple HTML representation for the PDF export
   const buildHtmlForPdf = (obj) => {
     const rows = Object.keys(obj)
       .map((k) => {
         let displayValue = '';
 
-        // --- Special case: users_json (array of users) ---
         if (k === 'users_json') {
           try {
             const users =
@@ -526,29 +867,17 @@ export default function CardInfo(props) {
           } catch (e) {
             displayValue = '-';
           }
-        }
-
-        // --- New image placeholder ---
-        else if (obj[k] && typeof obj[k] === 'object' && obj[k].__new) {
+        } else if (obj[k] && typeof obj[k] === 'object' && obj[k].__new) {
           displayValue = '(new image)';
-        }
-
-        // --- Arrays (fallback) ---
-        else if (Array.isArray(obj[k])) {
+        } else if (Array.isArray(obj[k])) {
           displayValue = obj[k].join(', ');
-        }
-
-        // --- Objects (fallback) ---
-        else if (typeof obj[k] === 'object' && obj[k] !== null) {
+        } else if (typeof obj[k] === 'object' && obj[k] !== null) {
           try {
             displayValue = JSON.stringify(obj[k]);
           } catch {
             displayValue = String(obj[k]);
           }
-        }
-
-        // --- Primitives ---
-        else {
+        } else {
           displayValue = obj[k] ?? '';
         }
 
@@ -605,11 +934,13 @@ export default function CardInfo(props) {
    * Render
    * ------------------------- */
 
-  // Empty / no-data state
   if (!local) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-        <LinearGradient colors={['#60A5FA', '#3B82F6']} style={[styles.topSection, { paddingTop: insets.top }]} />
+        <LinearGradient
+          colors={['#60A5FA', '#3B82F6']}
+          style={[styles.topSection, { paddingTop: insets.top }]}
+        />
         <View style={[styles.bottomSection, { justifyContent: 'center', alignItems: 'center' }]}>
           <Text style={{ color: '#666' }}>No data to display.</Text>
           <TouchableOpacity style={[styles.smallBtn, { marginTop: 12 }]} onPress={safeOnCancel}>
@@ -620,7 +951,6 @@ export default function CardInfo(props) {
     );
   }
 
-  // Main render: header + scrollable form fields + actions
   return (
     <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
       <LinearGradient
@@ -637,22 +967,24 @@ export default function CardInfo(props) {
       </LinearGradient>
 
       <View style={styles.bottomSection}>
-        <ScrollView contentContainerStyle={styles.formContainer} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.formContainer}
+          keyboardShouldPersistTaps="handled"
+          enableResetScrollToCoords={false}
+        >
           <View style={styles.headerRow}>
             <Text style={styles.headerId}>ID: {local.id}</Text>
             <Text style={styles.headerType}>{local.form_type}</Text>
           </View>
 
-          {/* Render users separately */}
-          {local.users_json && renderUsersField(
-            typeof local.users_json === 'string'
-              ? JSON.parse(local.users_json)
-              : local.users_json
-          )}
+          {local.users_json &&
+            renderUsersField(
+              typeof local.users_json === 'string'
+                ? JSON.parse(local.users_json)
+                : local.users_json
+            )}
 
-          {/* Render all other fields */}
           {safeKeys.map((k) => renderField(k))}
-
 
           <View style={styles.buttonRow}>
             <TouchableOpacity onPress={handleDownload} style={styles.downloadBtn} disabled={saving}>
@@ -667,7 +999,7 @@ export default function CardInfo(props) {
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
     </SafeAreaView>
   );
@@ -710,7 +1042,12 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    alignItems: 'center',
+  },
   headerId: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
   headerType: { fontSize: 12, color: '#6B7280', textTransform: 'lowercase' },
 
@@ -759,9 +1096,14 @@ const styles = StyleSheet.create({
   },
 
   imageRow: { flexDirection: 'row', alignItems: 'center' },
-  imagePreview: { width: '100%', height: '100%' },
 
-  smallBtn: { paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#E5E7EB', borderRadius: 6, alignSelf: 'flex-start' },
+  smallBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
   smallBtnText: { fontSize: 13, color: '#374151' },
 
   removeBtn: {

@@ -27,7 +27,6 @@
  * Navigation:
  * • After logging in, user is redirected via `navigation.replace()` for cleaner navigation stack.
  */
-
 import React, { useState } from 'react';
 import {
   View,
@@ -56,13 +55,11 @@ export default function Login({ navigation }) {
    */
  const onLogin = async () => {
     try {
-      // Normalize API URL (remove trailing slashes)
       const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = base || 'http://192.168.1.21:3000';
-      const hardCode = 'http://192.168.1.14:3000';
-      const url = `${hardCode}/api/users/login`;
-      console.log("FETCH URL =", url);
+      const baseWithFallback = 'http://192.168.1.4:3000';
+      const url = `${baseWithFallback}/api/auth/login`;
 
+      // console.log("FETCH URL =", url);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -72,18 +69,24 @@ export default function Login({ navigation }) {
 
       const contentType = response.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        alert('Server error: invalid response');
+        const text = await response.text().catch(() => '');
+        alert('Server error: invalid response' + (text ? `\n\n${text}` : ''));
         return;
       }
 
       const data = await response.json();
 
       if (response.ok) {
-        alert('Welcome ' + data.user?.name);
+        alert('Welcome ' + (data.user?.name ?? ''));
 
-        await AsyncStorage.setItem('token', data.token);
-        await AsyncStorage.setItem('user_id', String(data.user?.user_id));
-        await AsyncStorage.setItem('position', String(data.user?.position));
+        // Store only strings
+        await AsyncStorage.multiSet([
+          ['token', data.token ?? ''],
+          ['user_id', String(data.user?.id ?? '')],
+          ['name', String(data.user?.name ?? '')],
+          ['email', String(data.user?.email ?? '')],
+          ['role', String(data.user?.role ?? '')],
+        ]);
 
         navigation.replace('MainApp', { screen: 'Menu' });
       } else {
@@ -96,8 +99,6 @@ export default function Login({ navigation }) {
       );
     }
   };
-
-
 
   return (
     <KeyboardAvoidingView
