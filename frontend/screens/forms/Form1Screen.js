@@ -38,7 +38,8 @@ import SearchBar from '../../components/SearchBar';
 import { nama_sales, regions, jabatan, status_kunjungan, jumlah_user } from "../../data/appData";
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+// import { API_URL } from '@env';
+import API_BASE from '../../config/api';
 
 /**
  * HEADER_HEIGHT exported so other components/layout can align with the form header.
@@ -154,10 +155,10 @@ export default function Form1Screen({ navigation }) {
         // trim extra users
         copy.length = count;
       }
-
       return copy;
     });
   };
+
 
   /* -------------------------
    * onSelectRegion(selectReg)
@@ -186,7 +187,7 @@ export default function Form1Screen({ navigation }) {
     setLoading(true);
     try {
       // Normalize API_URL and construct endpoint
-      const demoURL = 'http://192.168.1.93:3000';
+      const demoURL = API_BASE;
 
       const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
       const token = await AsyncStorage.getItem('token');
@@ -279,7 +280,7 @@ export default function Form1Screen({ navigation }) {
     if (!image?.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.93:3000";
+      const baseUrl = API_BASE;
       const mimeType = getMimeType(image);
       const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
@@ -318,7 +319,7 @@ export default function Form1Screen({ navigation }) {
     * - Creates sales detail
     * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.93:3000";
+    const baseUrl = API_BASE;
 
     const norm = (v) => (v?.value ?? v?.label ?? v ?? "").toString().trim();
     const fail = (msg) => {
@@ -336,6 +337,14 @@ export default function Form1Screen({ navigation }) {
       const userId = Number(userIdRaw);
       if (!userIdRaw || Number.isNaN(userId)) return fail("Missing/invalid user_id.");
       if (!token) return fail("Missing token.");
+      
+      if (!namaSales || !namaSales.trim()) {
+        return fail('Tolong isi nama sales');
+      }
+
+      if (!lokasi || !lokasi.trim()) {
+        return fail('Tolong isi nama lokasi');
+      }
 
       // --- Normalize
       const nameToSend = norm(namaSales);
@@ -388,6 +397,8 @@ export default function Form1Screen({ navigation }) {
         dokumentasiKey = await uploadImageToS3(dokumentasi);
       }
 
+      console.log('frontend isDraft:',draftToSend)
+
       const visitPayload = {
         user_id: userId,
         customer_id: 1,
@@ -397,7 +408,7 @@ export default function Form1Screen({ navigation }) {
         visit_type: "sales",
         note: noteToSend,
         is_draft: draftToSend,
-        sales_category: "healthcare",
+        sales_category: 'healthcare'
       };
 
       const visitRes = await axios.post(getVisitsUrl(baseUrl), visitPayload, axiosCfg);
@@ -423,12 +434,14 @@ export default function Form1Screen({ navigation }) {
         customer_contacts: users,
         visit_documentation: dokumentasiKey,
         is_draft: draftToSend,
+        sales_category: 'healthcare'
       };
 
       await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
       console.log('is_draft value: ', draftToSend)
 
       alert(isDraft ? "Draft saved!" : "Submitted successfully!");
+      navigation.goBack();
 
     } catch (err) {
       const status = err?.response?.status;
@@ -466,14 +479,18 @@ export default function Form1Screen({ navigation }) {
           contentContainerStyle={{ paddingBottom: 120, paddingLeft: 20 }}
           enableAutomaticScroll={false}
           enableOnAndroid={true}
-          keyboardOpeningTime={Number.MAX_SAFE_INTEGER}
-          extraScrollHeight={100}
+          keyboardOpeningTime={0}
+          extraScrollHeight={0}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
         >
+          <Text style={styles.draftHint}>
+            Isi field bertanda “(draft)” untuk menyimpan draft
+          </Text>
+          
           {/* Form fields (composed from small, reusable components) */}
-          <DropdownPicker value={namaSales} title="Nama Sales" options={nama_sales} onSelect={setNamaSales} />
+          <DropdownPicker value={namaSales} title="Nama Sales (draft)" options={nama_sales} onSelect={setNamaSales} />
 
           {/* Region dropdown triggers fetching hospitals */}
           <DropdownPicker value={region} title="Region" options={regions} onSelect={onSelectRegion} />
@@ -488,7 +505,7 @@ export default function Form1Screen({ navigation }) {
           {error && <Text style={styles.errorText}>{error}</Text>}
 
           {/* Searchable hospital selector */}
-          <SearchBar value={lokasi} title="Nama Lokasi" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
+          <SearchBar value={lokasi} title="Nama Lokasi (draft)" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
 
           {/* Location capture (GPS) */}
           <CoordinateInput value={coords} onPress={setCoords} />
@@ -560,7 +577,7 @@ export default function Form1Screen({ navigation }) {
           >
             {saving
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.saveText}>Save</Text>
+              : <Text style={styles.saveText}>Save Draft</Text>
             }
           </TouchableOpacity>
         </View>
@@ -573,8 +590,8 @@ export default function Form1Screen({ navigation }) {
  * Styles
  * ------------------------- */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  formContent: { flex: 1 },
+  container: {flex: 1, backgroundColor: '#F9FAFB' },
+  formContent: {flex: 1},
   spinner: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -600,5 +617,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: 55,
   },
-  saveText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  saveText: {color: '#fff', fontWeight: '700', fontSize: 18},
+  draftHintContainer: {
+    backgroundColor: '#FEF3C7', // soft yellow
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+},
+draftHint: {
+  color: '#92400E',
+  fontSize: 13,
+  lineHeight: 18,
+  fontWeight: '500',
+},
 });

@@ -107,7 +107,7 @@ export default function FooterPagination(props) {
             style={[styles.nextButton, {backgroundColor: '#63bf3c'}]}
             activeOpacity={0.9}
           >
-            <Text style={styles.nextText}>Save</Text>
+            <Text style={styles.nextText}>Save Draft</Text>
           </TouchableOpacity>
           
           <TouchableOpacity

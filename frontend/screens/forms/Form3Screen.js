@@ -49,7 +49,7 @@ import CameraInput from "../../components/CameraInput";
 import { nama_teknisi, kuantitas_option } from "../../data/appData";
 import axios from "axios";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+// import { API_URL } from '@env';
 
 const PRIMARY = "#3B82F6";
 
@@ -100,7 +100,7 @@ export default function Form3screen({ navigation }) {
    * Check if product exists in product db
    */  
   const onSerialBlur = async (e) => {
-    const baseUrl = 'http://192.168.1.93:3000'
+    const baseUrl = API_BASE;
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
@@ -163,7 +163,7 @@ export default function Form3screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.93:3000";
+      const baseUrl = API_BASE;
 
       const response = await axios.post(
         `${baseUrl}/api/products/get-or-create`,
@@ -235,7 +235,7 @@ export default function Form3screen({ navigation }) {
       if (!image?.uri) return null;
 
       try {
-        const baseUrl = "http://192.168.1.93:3000";
+        const baseUrl = API_BASE;
         const mimeType = getMimeType(image);
         const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
@@ -278,7 +278,7 @@ export default function Form3screen({ navigation }) {
    * - Create activity detail
    */
   const handleSubmit = async ({isDraft}) => { 
-    const baseURL = 'http://192.168.1.93:3000';
+    const baseURL = API_BASE;
 
     const fail = (message, extra = null) => {
       if (extra) console.error(message, extra);
@@ -318,6 +318,14 @@ export default function Form3screen({ navigation }) {
       const userId = Number(userIdRaw);
       if (!userIdRaw || Number.isNaN(userId)) {
         return fail('Missing/invalid user_id. Please login again.');
+      }
+
+      if (!technicianName || !technicianName.trim()) {
+        return fail('Tolong isi nama teknisi');
+      }
+
+      if (!tgl_aktivitas || !tgl_aktivitas.trim()) {
+        return fail('Tolong isi tanggal aktivitas');
       }
 
       // 2) Normalize / prepare values
@@ -427,6 +435,8 @@ export default function Form3screen({ navigation }) {
       );
 
       alert(isDraft ? 'Draft saved.' : 'Submitted successfully!');
+      navigation.goBack();
+
       return activityRes?.data;
     } catch (error) {
       const status = error?.response?.status;
@@ -489,16 +499,22 @@ export default function Form3screen({ navigation }) {
           {/* Step 1 */}
           {page === 1 && (
             <View style={styles.pageInner}>
+              <Text style={styles.draftHint}>
+                Isi field bertanda “(draft)” untuk menyimpan draft
+              </Text>
               <InputBox title="Tujuan Kunjungan" value={visitPurpose} onChangeText={setVisitPurpose} />
-              <Text style={[styles.label, { marginTop: 0 }]}>Tanggal Aktivitas</Text>
-              <DatePicker value={tgl_aktivitas} onConfirm={setDate} />
+              <Text style={[styles.label, { marginTop: 0 }]}>Tanggal Aktivitas (Draft)</Text>
 
+              <DatePicker value={tgl_aktivitas} onConfirm={setDate} />
+              
+              <View>
               <DropdownPicker
                 value={technicianName}
-                title="Nama Teknisi Yang Mengisi"
+                title="Nama Teknisi Yang Mengisi (draft)"
                 options={nama_teknisi}
                 onSelect={setTechnicianName}
               />
+              </View>
 
               <InputBox value={hospital} title="Nama Lokasi" onChangeText={setHospital} />
 
@@ -636,5 +652,20 @@ const styles = StyleSheet.create({
   footerContainer: {
     paddingHorizontal: 18,
     paddingBottom: Platform.OS === "ios" ? 18 : 12,
+  },
+   draftHintContainer: {
+    backgroundColor: '#FEF3C7', // soft yellow
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  draftHint: {
+    color: '#92400E',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
   },
 });

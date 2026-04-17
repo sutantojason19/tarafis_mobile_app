@@ -33,7 +33,8 @@ import SearchBar from '../../components/SearchBar';
 import { nama_sales, regions } from "../../data/appData";
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+// import { API_URL } from '@env';
+import API_BASE from '../../config/api';
 
 /**
  * Height of the form header. Exported so other components/layouts can align with it.
@@ -123,7 +124,7 @@ export default function Form2Screen({ navigation }) {
 
     setLoading(true);
     try {
-      const demoURL = 'http://192.168.1.93:3000';
+      const demoURL = API_BASE;
       const url = `${demoURL}/api/visits/hospital/${encodeURIComponent(selectReg)}`;
       const token = await AsyncStorage.getItem('token');
 
@@ -196,7 +197,7 @@ export default function Form2Screen({ navigation }) {
     if (!image?.uri) return null;
 
     try {
-      const baseUrl = "http://192.168.1.93:3000";
+      const baseUrl = API_BASE;
       const mimeType = getMimeType(image);
       const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
@@ -236,7 +237,7 @@ export default function Form2Screen({ navigation }) {
   * - Create Visit -> Create Sales detail
   * ------------------------- */
   const submitForm = async ({ isDraft }) => {
-    const baseUrl = "http://192.168.1.93:3000";
+    const baseUrl = API_BASE;
 
     const normalizeValue = (value, fallbackKeys = []) => {
       if (value == null) return "";
@@ -301,6 +302,14 @@ export default function Form2Screen({ navigation }) {
         return showError("Missing token. Please log in again.");
       }
 
+      if (!namaSales || !namaSales.trim()) {
+        return showError('Tolong isi nama sales');
+      }
+
+      if (!lokasi || !lokasi.trim()) {
+        return showError('Tolong isi nama lokasi');
+      }
+
       // 2) Normalize inputs
       const normalized = {
         salesName: normalizeValue(namaSales, ["value", "label"]),
@@ -351,7 +360,6 @@ export default function Form2Screen({ navigation }) {
       if (dokumentasi?.uri) {
         dokumentasiKey = await uploadImageToS3(dokumentasi);
       }
-
       // 6) Create visit header
       const visitPayload = {
         user_id: userId,
@@ -361,8 +369,8 @@ export default function Form2Screen({ navigation }) {
         longitude: parsedCoords.lng != null ? String(parsedCoords.lng) : null,
         visit_type: "sales",
         note: normalized.note,
-        sales_category: "non_healthcare",
         is_draft: draftFlag,
+        sales_categoty: "non_healthcare",
       };
 
       const visitRes = await axios.post(
@@ -396,6 +404,7 @@ export default function Form2Screen({ navigation }) {
       await axios.post(getSalesUrl(baseUrl, visitId), salesPayload, axiosCfg);
 
       alert(isDraft ? "Draft saved!" : "Submitted successfully!");
+      navigation.goBack();
     } catch (err) {
       const status = err?.response?.status;
       const msg =
@@ -451,14 +460,17 @@ export default function Form2Screen({ navigation }) {
           contentContainerStyle={{ paddingBottom: 120, paddingLeft: 20 }}
           enableAutomaticScroll={false}
           enableOnAndroid={true}
-          keyboardOpeningTime={Number.MAX_SAFE_INTEGER}
-          extraScrollHeight={100}
+          keyboardOpeningTime={0}
+          extraScrollHeight={0}
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
         >
           {/* Form inputs composed from small reusable components */}
-          <DropdownPicker value={namaSales} title="Nama Sales" options={nama_sales} onSelect={setNamaSales} />
+          <Text style={styles.draftHint}>
+            Isi field bertanda “(draft)” untuk menyimpan draft
+          </Text>
+          <DropdownPicker value={namaSales} title="Nama Sales (draft)" options={nama_sales} onSelect={setNamaSales} />
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <DropdownPicker
               value={region}
@@ -469,7 +481,7 @@ export default function Form2Screen({ navigation }) {
             {loading && <ActivityIndicator style={{ marginLeft: 8 }} />}
           </View>
 
-          <SearchBar value={lokasi} title="Nama Lokasi" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
+          <SearchBar value={lokasi} title="Nama Lokasi (draft)" onDropdownOpenChange={setDropdownOpen} onPress={searchbarSelect} hospitalData={hospitals} />
           <InputBox value={alamat} title="Alamat Lokasi" onChangeText={setAlamat} />
           <CoordinateInput value={coords} onPress={setCoords} />
           <InputBox value={tujuan} title="Tujuan Kunjungan" onChangeText={setTujuanKunjungan} />
@@ -490,7 +502,7 @@ export default function Form2Screen({ navigation }) {
             >
               {saving
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.saveText}>Save</Text>
+                : <Text style={styles.saveText}>Save Draft</Text>
               }
             </TouchableOpacity>
           </View>
@@ -516,4 +528,19 @@ const styles = StyleSheet.create({
     height: 55,
   },
   saveText: { color: '#fff', fontWeight: '700', fontSize: 18 },
+  draftHintContainer: {
+    backgroundColor: '#FEF3C7', // soft yellow
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+},
+draftHint: {
+  color: '#92400E',
+  fontSize: 13,
+  lineHeight: 18,
+  fontWeight: '500',
+},
 });

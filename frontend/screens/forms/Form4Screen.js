@@ -34,9 +34,8 @@ import CameraInput from "../../components/CameraInput";
 import { kuantitas_option } from "../../data/appData";
 import axios from "axios";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+// import { API_URL } from '@env';
 import API_BASE from "../../config/api";
-
 
 const PRIMARY = "#3B82F6";
 
@@ -104,7 +103,7 @@ export default function Form4screen({ navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
 
-      const baseUrl = "http://192.168.1.93:3000";
+      const baseUrl = API_BASE;
 
       const response = await axios.post(
         `${baseUrl}/api/products/get-or-create`,
@@ -129,7 +128,7 @@ export default function Form4screen({ navigation }) {
       if (!image?.uri) return null;
 
       try {
-        const baseUrl = "http://192.168.1.93:3000";
+        const baseUrl = API_BASE;
         const mimeType = getMimeType(image);
         const fileName = image.fileName || image.uri.split("/").pop() || "photo.jpg";
 
@@ -170,7 +169,7 @@ export default function Form4screen({ navigation }) {
     const isEmpty = (v) => v === null || v === undefined || v === "" || v === 0;
 
     try {
-      const baseUrl = "http://192.168.1.93:3000";
+      const baseUrl = API_BASE;
 
       const [userIdRaw, token] = await Promise.all([
         AsyncStorage.getItem("user_id"),
@@ -183,6 +182,10 @@ export default function Form4screen({ navigation }) {
       if (!userIdRaw || Number.isNaN(userId)) {
         alert("Missing/invalid user_id. Please log in again.");
         return;
+      }
+
+      if (!kuantitas|| !kuantitas.trim()) {
+        return fail('Tolong isi kuantitas produk');
       }
 
       const headers = buildAuthHeaders(token);
@@ -300,6 +303,7 @@ export default function Form4screen({ navigation }) {
 
       console.info("Form upload successful:", serviceRes.status);
       alert(isDraft ? "Draft saved!" : "Form submitted successfully!");
+      navigation.goBack();
       return serviceRes.data;
     } catch (err) {
       const payload = err.response?.data ?? err.message ?? err;
@@ -313,7 +317,7 @@ export default function Form4screen({ navigation }) {
   const onSave = () => handleSubmit({ isDraft: true });
 
   const onSerialBlur = async (e) => {
-    const baseUrl = 'http://192.168.1.93:3000'
+    const baseUrl = API_BASE
     const serial = e?.nativeEvent?.text;
     if (!serial) return;
 
@@ -374,6 +378,9 @@ export default function Form4screen({ navigation }) {
 
           {page === 1 && (
             <View style={styles.pageInner}>
+               <Text style={styles.draftHint}>
+                  Isi field bertanda “(draft)” untuk menyimpan draft
+                </Text>
               <Text style={styles.sectionTitle}>Detail Produk</Text>
               <InputBox title="Serial Number" value={serialNum} onChangeText={setSerialNum} onEndEditing={onSerialBlur} />
               {prodExist === false && (
@@ -385,7 +392,7 @@ export default function Form4screen({ navigation }) {
               <InputBox title="Tipe Produk" value={productType} onChangeText={setProductType} />
               <InputBox title="Merk Produk" value={merkProd} onChangeText={setMerk} />
               <DropdownPicker
-                title="Kuantitas Produk"
+                title="Kuantitas Produk (draft)"
                 options={kuantitas_option}
                 onSelect={(item) => setKuantitas(item)}
                 value={kuantitas}
@@ -482,5 +489,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: Platform.OS === "ios" ? 18 : 12,
     backgroundColor: "transparent",
+  },
+  draftHintContainer: {
+    backgroundColor: '#FEF3C7', // soft yellow
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  draftHint: {
+    color: '#92400E',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
   },
 });

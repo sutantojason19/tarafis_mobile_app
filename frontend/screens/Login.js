@@ -39,8 +39,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { API_URL } from '@env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import API_BASE from '../config/api';
 
 export default function Login({ navigation }) {
   // Form state for login credentials
@@ -55,8 +55,11 @@ export default function Login({ navigation }) {
    */
  const onLogin = async () => {
     try {
-      const base = (API_URL || '').replace(/\/+$/g, '');
-      const baseWithFallback = 'http://192.168.1.93:3000';
+      const base = (API_BASE || '').replace(/\/+$/g, '');
+      // console.log(API_BASE)
+      // const baseWithFallback = 'http://192.168.1.93:3000';
+      
+      const baseWithFallback = API_BASE;
       const url = `${baseWithFallback}/api/auth/login`;
 
       // console.log("FETCH URL =", url);

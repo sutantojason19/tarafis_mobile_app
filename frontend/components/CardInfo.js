@@ -1,30 +1,13 @@
 /**
  * CardInfo.js
  *
- * Form detail screen used to view, edit, export and save a single form record.
- *
- * Responsibilities:
- * - Render fields found in `data` (passed via props or navigation params)
- * - Support read-only fields and editable fields
- * - Special rendering for date fields and image fields (CameraInput)
- * - Upload newly selected images before submitting updates
- * - Perform a PATCH to /api/forms/:form_type/:id?user_id=...
- * - Export the current form as a PDF via Expo Print + Sharing
- *
- * Props:
- * - route (optional)            : react-navigation route (used to get params.data)
- * - navigation (optional)       : react-navigation navigation (used for goBack)
- * - data (object | null)        : initial form data to display
- * - onSave (fn)                 : optional callback invoked after successful save
- * - onCancel (fn)               : optional callback for cancel action
- * - uploadingHost (string)      : base host used when uploading images and creating preview URLs
- * - formTypeColor (string)      : optional color used for header label coloring
- *
- * Notes:
- * - The component attempts to minimize data sent to server by diffing changed fields.
- * - Image upload endpoint is expected at `${uploadingHost}/uploads` and returns JSON with `filename`.
- * - This file uses Expo APIs (Print, FileSystem, Sharing) and expo-image-picker via CameraInput component.
+ * Main changes:
+ * - controlled by canEdit prop from previous screen/tabs
+ * - multiple customer contacts support
+ * - customer_contacts shown as editable rows (nama + jabatan)
+ * - save button only shown if canEdit === true
  */
+
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
@@ -43,13 +26,17 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../config/api';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 /* ------------------------------------------------------------------
  * Constants
  * ------------------------------------------------------------------ */
 
+/**
+ * Maps each visit type to the image fields that belong to that form.
+ * This helps the component know which fields should be treated as images.
+ */
 const IMAGE_FIELDS_BY_TYPE = {
   sales: ['visit_documentation'],
   technician_activity: ['selfie_photo', 'attendance_document_photo'],
@@ -60,6 +47,66 @@ const IMAGE_FIELDS_BY_TYPE = {
   ],
 };
 
+/**
+ * Default empty customer contact object.
+ * Used when there is no contact yet or when adding a new blank row.
+ */
+const EMPTY_CONTACT = { nama: '', jabatan: '' };
+
+/**
+ * Converts customer_contacts from whatever format comes from backend
+ * into a clean array of objects: [{ nama, jabatan }].
+ *
+ * Handles:
+ * - null / undefined
+ * - already-an-array
+ * - JSON string from DB
+ */
+const parseCustomerContacts = (value) => {
+  if (!value) return [{ ...EMPTY_CONTACT }];
+
+  if (Array.isArray(value)) {
+    return value.length
+      ? value.map((item) => ({
+          nama: item?.nama ?? '',
+          jabatan: item?.jabatan ?? '',
+        }))
+      : [{ ...EMPTY_CONTACT }];
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed) && parsed.length) {
+        return parsed.map((item) => ({
+          nama: item?.nama ?? '',
+          jabatan: item?.jabatan ?? '',
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to parse customer_contacts:', err);
+    }
+  }
+
+  return [{ ...EMPTY_CONTACT }];
+};
+
+/**
+ * Cleans customer contacts before sending to backend.
+ * - trims spaces
+ * - removes completely empty rows
+ *
+ * This prevents saving useless blank contacts.
+ */
+const cleanCustomerContacts = (contacts = []) => {
+  return contacts
+    .map((item) => ({
+      nama: item?.nama?.trim?.() ?? '',
+      jabatan: item?.jabatan?.trim?.() ?? '',
+    }))
+    .filter((item) => item.nama || item.jabatan);
+};
+
 /* ------------------------------------------------------------------
  * Component
  * ------------------------------------------------------------------ */
@@ -67,7 +114,6 @@ const IMAGE_FIELDS_BY_TYPE = {
 export default function CardInfo(props) {
   const insets = useSafeAreaInsets();
 
-  // Props (with defaults/fallbacks)
   const {
     route,
     navigation,
@@ -76,62 +122,104 @@ export default function CardInfo(props) {
     onCancel,
     uploadingHost: uploadingHostProp,
     formTypeColor,
+    canEdit: canEditProp,
   } = props;
 
-  // Data source: explicit prop -> route param -> null
   const data = dataProp ?? route?.params?.data ?? null;
 
-  // Prefer explicit prop, otherwise env, otherwise fallback host
-  // const apiHost =
-  //   (uploadingHostProp && String(uploadingHostProp).replace(/\/$/, '')) ||
-  //   (API_URL && String(API_URL).replace(/\/$/, '')) ||
-  //   'http://192.168.1.14:3000';
+  /**
+   * Determines whether the current screen should allow editing.
+   * Falls back to route params if prop is not explicitly passed.
+   */
+  const canEdit = canEditProp ?? route?.params?.canEdit ?? false;
 
-   const apiHost = 'http://192.168.1.11:3000';
-   console.log(apiHost)
+  const apiHost = API_BASE;
 
-  // Local editable copy of the record
+  /**
+   * local = editable copy of the form record
+   * saving = shows loading spinner while saving
+   * showDatePickerKey = stores which date field is currently open
+   * resolvedImageUrls = stores signed URLs or local preview URIs for image fields
+   * loadingImages = spinner while existing images are being resolved
+   * customerContacts = editable list of contacts shown in UI
+   */
   const [local, setLocal] = useState(data ? { ...data } : null);
   const [saving, setSaving] = useState(false);
   const [showDatePickerKey, setShowDatePickerKey] = useState(null);
   const [resolvedImageUrls, setResolvedImageUrls] = useState({});
   const [loadingImages, setLoadingImages] = useState(false);
-  
-  // Safe callbacks
+  const [customerContacts, setCustomerContacts] = useState([{ ...EMPTY_CONTACT }]);
+
+  /**
+   * Safe fallback for onSave.
+   * If parent does not pass one, this becomes a no-op async function.
+   */
   const safeOnSave = onSave || (async () => {});
+
+  /**
+   * Safe fallback for onCancel.
+   * If parent does not pass one, it simply goes back in navigation.
+   */
   const safeOnCancel =
     onCancel ||
     (() => {
       if (navigation && navigation.goBack) navigation.goBack();
     });
 
-  // When source data changes, reset local state
+  /**
+   * Whenever the source data changes, reset:
+   * - local editable record
+   * - customer contacts list
+   */
   useEffect(() => {
-    setLocal(data ? { ...data } : null);
+    const nextLocal = data ? { ...data } : null;
+    setLocal(nextLocal);
+    setCustomerContacts(parseCustomerContacts(nextLocal?.customer_contacts));
   }, [data]);
 
   /* -------------------------
    * Small helper utilities
    * ------------------------- */
 
-  // Detect likely image keys
-  const isImageKey = useCallback((k) => /foto|dokumentasi|selfie|bukti|proof|image|photo/i.test(k), []);
+  /**
+   * Returns true if a field name looks like an image field
+   * based on its key name alone.
+   */
+  const isImageKey = useCallback(
+    (k) => /foto|dokumentasi|selfie|bukti|proof|image|photo/i.test(k),
+    []
+  );
 
-  // Exact image field detection for your forms
+  /**
+   * Returns true if a field is explicitly listed in IMAGE_FIELDS_BY_TYPE.
+   * This is more reliable than checking key names alone.
+   */
   const isKnownImageField = useCallback((k) => {
     return Object.values(IMAGE_FIELDS_BY_TYPE).some((fields) => fields.includes(k));
   }, []);
 
+  /**
+   * Returns true if the value looks like an S3 key stored in DB,
+   * rather than a full image URL.
+   */
   const isLikelyS3Key = useCallback((value) => {
     if (!value || typeof value !== 'string') return false;
     if (value.startsWith('http://') || value.startsWith('https://')) return false;
     return true;
   }, []);
 
+  /**
+   * Returns the image field list for the given visit type.
+   * Example: sales -> ['visit_documentation']
+   */
   const getImageFieldsForType = useCallback((visitType) => {
     return IMAGE_FIELDS_BY_TYPE[visitType] || [];
   }, []);
 
+  /**
+   * Requests a signed image URL from backend for an S3 object key.
+   * Used so private images can be viewed in the app.
+   */
   const getSignedImageUrl = useCallback(
     async (key) => {
       try {
@@ -165,6 +253,14 @@ export default function CardInfo(props) {
     [apiHost]
   );
 
+  /**
+   * Resolves all existing image fields for the current record.
+   *
+   * Handles 3 cases:
+   * - newly selected local image -> use local URI
+   * - already full URL -> use directly
+   * - S3 key from DB -> request signed URL from backend
+   */
   const resolveExistingImages = useCallback(
     async (obj) => {
       if (!obj?.visit_type) {
@@ -188,19 +284,16 @@ export default function CardInfo(props) {
 
           if (!value) continue;
 
-          // New unsaved image selected in UI
           if (typeof value === 'object' && value.__new && value.uri) {
             nextImageUrls[field] = value.uri;
             continue;
           }
 
-          // Already a full URL
           if (typeof value === 'string' && !isLikelyS3Key(value)) {
             nextImageUrls[field] = value;
             continue;
           }
 
-          // Stored DB key -> resolve signed URL
           if (typeof value === 'string' && isLikelyS3Key(value)) {
             const signedUrl = await getSignedImageUrl(value);
             if (signedUrl) {
@@ -220,6 +313,9 @@ export default function CardInfo(props) {
     [getImageFieldsForType, getSignedImageUrl, isLikelyS3Key]
   );
 
+  /**
+   * Whenever the active local record changes, refresh image previews.
+   */
   useEffect(() => {
     if (!local) {
       setResolvedImageUrls({});
@@ -229,25 +325,37 @@ export default function CardInfo(props) {
     resolveExistingImages(local);
   }, [local?.id, local?.visit_type, resolveExistingImages]);
 
-  // Read-only fields
+  /**
+   * Read-only fields specific to sales form detail.
+   */
   const READ_ONLY_SALES_FIELDS = new Set([
     'visit_id',
     'is_draft',
     'visit_form_type',
   ]);
 
+  /**
+   * Read-only fields specific to technician activity detail.
+   */
   const READ_ONLY_ACTIVITY_FIELDS = new Set([
     'visit_id',
     'is_draft',
     'product_id',
   ]);
 
+  /**
+   * Visit header fields that are allowed to be updated separately.
+   * These go to /visit patch instead of detail patch.
+   */
   const VISIT_EDITABLE_FIELDS = new Set([
     'latitude',
     'longitude',
     'note',
   ]);
 
+  /**
+   * General visit-level fields that should never be editable in this screen.
+   */
   const READ_ONLY_VISIT_FIELDS = new Set([
     'id',
     'user_id',
@@ -262,22 +370,37 @@ export default function CardInfo(props) {
     'product_id',
   ]);
 
-  // Hidden fields
+  /**
+   * Fields completely hidden from UI.
+   */
   const HIDDEN_FIELDS = new Set([
     'deleted_at',
     'form_type',
   ]);
 
-  // Combined read-only fields
+  /**
+   * Combined set of all fields that should be shown as read-only.
+   */
   const READ_ONLY_FIELDS = new Set([
     ...READ_ONLY_VISIT_FIELDS,
     ...READ_ONLY_ACTIVITY_FIELDS,
     ...READ_ONLY_SALES_FIELDS,
   ]);
 
+  /**
+   * Returns true if a field should be displayed as read-only.
+   */
   const isReadOnlyKey = useCallback((k) => READ_ONLY_FIELDS.has(k), []);
+
+  /**
+   * Returns true if a field should be hidden completely.
+   */
   const isHiddenKey = useCallback((k) => HIDDEN_FIELDS.has(k), []);
 
+  /**
+   * Converts snake_case field names into readable labels.
+   * Example: customer_contacts -> Customer Contacts
+   */
   const titleCase = (raw = '') =>
     raw
       .replace(/_/g, ' ')
@@ -286,11 +409,17 @@ export default function CardInfo(props) {
       .map((w) => w[0].toUpperCase() + w.slice(1))
       .join(' ');
 
+  /**
+   * Fields that should be skipped if their value is null or blank.
+   */
   const SKIP_IF_NULL = useMemo(
     () => new Set(['nama_user', 'jabatan_user', 'users_json', 'status_kunjungan']),
     []
   );
 
+  /**
+   * Renders a list of users_json in a readable card format.
+   */
   const renderUsersField = (users) => {
     if (!Array.isArray(users) || users.length === 0) return null;
 
@@ -322,11 +451,18 @@ export default function CardInfo(props) {
     );
   };
 
+  /**
+   * Visit types where latitude/longitude should not be shown.
+   */
   const HIDE_LAT_LNG_VISIT_TYPES = new Set([
     'technician_activity',
     'technician_service',
   ]);
 
+  /**
+   * Builds the final ordered list of fields to render on screen.
+   * Also filters out hidden/blank fields and preserves some priority order.
+   */
   const safeKeys = useMemo(() => {
     if (!local) return [];
 
@@ -350,6 +486,7 @@ export default function CardInfo(props) {
 
     const filtered = ordered.filter((k) => {
       if (isHiddenKey(k)) return false;
+      if (k === 'customer_contacts') return true;
 
       const visitType = local?.visit_type;
 
@@ -375,12 +512,13 @@ export default function CardInfo(props) {
   }, [local, isReadOnlyKey, isHiddenKey, SKIP_IF_NULL]);
 
   /**
-   * uploadNewImages
+   * Uploads newly selected images to S3 through a backend presign flow.
    *
-   * Finds fields that are newly selected images (`{ __new: true, uri, fileName, type }`),
-   * uploads them to `${apiHost}/uploads`, and replaces the field value with the returned filename.
-   *
-   * Returns a new object with updated values.
+   * Flow:
+   * 1. Find image fields with __new flag
+   * 2. Ask backend for presigned URL
+   * 3. Upload blob directly to S3
+   * 4. Replace local image object with stored S3 key
    */
   const uploadNewImages = useCallback(
     async (obj) => {
@@ -400,7 +538,6 @@ export default function CardInfo(props) {
         const file = updated[k];
         const token = await AsyncStorage.getItem('token');
 
-        // 1. Ask backend for presigned upload URL
         const presignResp = await fetch(`${apiHost}/api/uploads/presign`, {
           method: 'POST',
           headers: {
@@ -432,11 +569,9 @@ export default function CardInfo(props) {
           throw new Error('Presign response missing uploadUrl or key');
         }
 
-        // 2. Read local file into blob
         const localFileResp = await fetch(file.uri);
         const blob = await localFileResp.blob();
 
-        // 3. Upload directly to S3
         const s3UploadResp = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
@@ -449,7 +584,6 @@ export default function CardInfo(props) {
           throw new Error(`S3 upload failed (${s3UploadResp.status})`);
         }
 
-        // 4. Save returned S3 key into form data
         return { key: k, filename: uploadedKey };
       });
 
@@ -464,9 +598,54 @@ export default function CardInfo(props) {
   );
 
   /* -------------------------
+   * Customer contacts handlers
+   * ------------------------- */
+
+  /**
+   * Updates one field (nama or jabatan) for one customer contact row.
+   */
+  const handleCustomerContactChange = (index, field, value) => {
+    if (!canEdit) return;
+
+    setCustomerContacts((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        [field]: value,
+      };
+      return updated;
+    });
+  };
+
+  /**
+   * Adds a new blank customer contact row to the form.
+   */
+  const handleAddCustomerContact = () => {
+    if (!canEdit) return;
+    setCustomerContacts((prev) => [...prev, { ...EMPTY_CONTACT }]);
+  };
+
+  /**
+   * Removes one customer contact row by index.
+   * Keeps at least one blank row so the UI never fully disappears.
+   */
+  const handleRemoveCustomerContact = (index) => {
+    if (!canEdit) return;
+
+    setCustomerContacts((prev) => {
+      if (prev.length === 1) return [{ ...EMPTY_CONTACT }];
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  /* -------------------------
    * Render helpers
    * ------------------------- */
 
+  /**
+   * Renders a standard label for a field.
+   * Can optionally show a required asterisk.
+   */
   const renderLabel = (key, required = false) => {
     const labelColor = formTypeColor || styles.label.color || '#1E40AF';
     return (
@@ -477,6 +656,13 @@ export default function CardInfo(props) {
     );
   };
 
+  /**
+   * Formats field values for read-only display.
+   * Handles:
+   * - date formatting
+   * - customer_contacts pretty formatting
+   * - default string conversion
+   */
   const formatDisplayValue = (key, value) => {
     if (value == null) return '';
 
@@ -497,9 +683,21 @@ export default function CardInfo(props) {
       }
     }
 
+    if (key === 'customer_contacts') {
+      try {
+        const parsed = parseCustomerContacts(value);
+        return parsed.map((c, i) => `${i + 1}. ${c.nama || '-'} (${c.jabatan || '-'})`).join('\n');
+      } catch {
+        return String(value);
+      }
+    }
+
     return String(value);
   };
 
+  /**
+   * Renders a single read-only field in a styled box.
+   */
   const renderReadOnly = (key, value) => (
     <View key={key} style={styles.row}>
       {renderLabel(key)}
@@ -509,39 +707,63 @@ export default function CardInfo(props) {
     </View>
   );
 
+  /**
+   * Renders a normal editable text input field.
+   * Automatically becomes non-editable if canEdit is false.
+   */
   const renderTextField = (key) => (
     <View key={key} style={styles.row}>
       <Text style={styles.label}>{titleCase(key)}</Text>
       <TextInput
         value={local[key] != null ? String(local[key]) : ''}
-        onChangeText={(t) => setLocal((prev) => ({ ...prev, [key]: t }))}
-        style={styles.formInput}
+        onChangeText={(t) => {
+          if (!canEdit) return;
+          setLocal((prev) => ({ ...prev, [key]: t }));
+        }}
+        style={[
+          styles.formInput,
+          !canEdit && styles.disabledInput,
+        ]}
         multiline={key.length > 12 || key.includes('note') || key.includes('keterangan')}
         placeholder={titleCase(key)}
         placeholderTextColor="#9CA3AF"
+        editable={canEdit}
       />
     </View>
   );
 
+  /**
+   * Renders a date field.
+   * Tapping opens the date picker if editing is allowed.
+   */
   const renderDateField = (key) => {
     const dateVal = local[key] ? new Date(local[key]) : null;
     return (
       <View key={key} style={styles.row}>
         <Text style={styles.label}>{titleCase(key)}</Text>
-        <TouchableOpacity onPress={() => setShowDatePickerKey(key)} style={styles.formInput}>
+        <TouchableOpacity
+          onPress={() => {
+            if (!canEdit) return;
+            setShowDatePickerKey(key);
+          }}
+          style={[styles.formInput, !canEdit && styles.disabledInput]}
+          activeOpacity={canEdit ? 0.7 : 1}
+        >
           <Text style={styles.inputText}>
             {dateVal ? dateVal.toISOString().slice(0, 10) : 'Select date'}
           </Text>
         </TouchableOpacity>
 
-        {showDatePickerKey === key && (
+        {canEdit && showDatePickerKey === key && (
           <DateTimePicker
             value={dateVal || new Date()}
             mode="date"
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             onChange={(e, picked) => {
               setShowDatePickerKey(null);
-              if (picked) setLocal((p) => ({ ...p, [key]: picked.toISOString().slice(0, 10) }));
+              if (picked) {
+                setLocal((p) => ({ ...p, [key]: picked.toISOString().slice(0, 10) }));
+              }
             }}
           />
         )}
@@ -549,6 +771,13 @@ export default function CardInfo(props) {
     );
   };
 
+  /**
+   * Renders an image field using CameraInput.
+   * Allows:
+   * - picking a new image
+   * - previewing current image
+   * - removing image (if editable)
+   */
   const renderImageField = (key) => {
     const val = local[key];
     const isNew = val && typeof val === 'object' && val.__new;
@@ -563,7 +792,9 @@ export default function CardInfo(props) {
             title={'none'}
             image={uri}
             onImageSelected={(asset) => {
+              if (!canEdit) return;
               if (!asset) return;
+
               setLocal((prev) => ({
                 ...prev,
                 [key]: {
@@ -573,11 +804,13 @@ export default function CardInfo(props) {
                   type: asset.type,
                 },
               }));
+
               setResolvedImageUrls((prev) => ({
                 ...prev,
                 [key]: asset.uri,
               }));
             }}
+            disabled={!canEdit}
           />
         </View>
 
@@ -585,24 +818,96 @@ export default function CardInfo(props) {
           <ActivityIndicator style={{ marginTop: 8 }} />
         ) : null}
 
+        {canEdit && (
+          <TouchableOpacity
+            onPress={() => {
+              setLocal((p) => ({ ...p, [key]: null }));
+              setResolvedImageUrls((prev) => ({
+                ...prev,
+                [key]: null,
+              }));
+            }}
+            style={[styles.smallBtn, { marginTop: 8 }]}
+          >
+            <Text style={styles.smallBtnText}>Remove</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  /**
+   * Renders the customer_contacts section.
+   * - read-only mode shows formatted text
+   * - edit mode shows repeatable input rows
+   */
+  const renderCustomerContactsField = () => {
+    if (!canEdit) {
+      return renderReadOnly('customer_contacts', customerContacts);
+    }
+
+    return (
+      <View key="customer_contacts" style={styles.row}>
+        <Text style={styles.label}>Customer Contacts</Text>
+
+        {customerContacts.map((contact, index) => (
+          <View key={`contact-${index}`} style={styles.contactCard}>
+            <Text style={styles.contactTitle}>Contact {index + 1}</Text>
+
+            <TextInput
+              value={contact.nama}
+              onChangeText={(text) =>
+                handleCustomerContactChange(index, 'nama', text)
+              }
+              style={styles.formInput}
+              placeholder="Nama"
+              placeholderTextColor="#9CA3AF"
+              editable={canEdit}
+            />
+
+            <TextInput
+              value={contact.jabatan}
+              onChangeText={(text) =>
+                handleCustomerContactChange(index, 'jabatan', text)
+              }
+              style={styles.formInput}
+              placeholder="Jabatan"
+              placeholderTextColor="#9CA3AF"
+              editable={canEdit}
+            />
+
+            <TouchableOpacity
+              onPress={() => handleRemoveCustomerContact(index)}
+              style={styles.removeContactBtn}
+            >
+              <Text style={styles.removeContactText}>Remove Contact</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+
         <TouchableOpacity
-          onPress={() => {
-            setLocal((p) => ({ ...p, [key]: null }));
-            setResolvedImageUrls((prev) => ({
-              ...prev,
-              [key]: null,
-            }));
-          }}
-          style={[styles.smallBtn, { marginTop: 8 }]}
+          onPress={handleAddCustomerContact}
+          style={styles.addContactBtn}
         >
-          <Text style={styles.smallBtnText}>Remove</Text>
+          <Text style={styles.addContactText}>+ Add Contact</Text>
         </TouchableOpacity>
       </View>
     );
   };
 
+  /**
+   * Main field router.
+   * Chooses how each field should be rendered:
+   * - hidden
+   * - customer contacts custom section
+   * - read-only
+   * - image
+   * - date
+   * - standard text field
+   */
   const renderField = (key) => {
     if (isHiddenKey(key)) return null;
+    if (key === 'customer_contacts') return renderCustomerContactsField();
     if (isReadOnlyKey(key)) return renderReadOnly(key, local[key]);
     if (isImageKey(key) || isKnownImageField(key)) return renderImageField(key);
     if (/tanggal|date/i.test(key)) return renderDateField(key);
@@ -613,8 +918,26 @@ export default function CardInfo(props) {
    * Save / export logic
    * ------------------------- */
 
+  /**
+   * Saves the edited form.
+   *
+   * High-level flow:
+   * 1. block save if read-only
+   * 2. validate required basics
+   * 3. clean customer contacts
+   * 4. upload new images
+   * 5. diff against original data
+   * 6. split visit header updates vs detail updates
+   * 7. PATCH both endpoints if needed
+   * 8. refresh local state
+   */
   const handleSave = async () => {
     try {
+      if (!canEdit) {
+        Alert.alert('Info', 'This form is read only.');
+        return;
+      }
+
       if (!local) {
         Alert.alert('Error', 'Nothing to save.');
         return;
@@ -640,9 +963,14 @@ export default function CardInfo(props) {
 
       setSaving(true);
 
-      let withUploadedImages = local;
+      const preparedLocal = {
+        ...local,
+        customer_contacts: cleanCustomerContacts(customerContacts),
+      };
+
+      let withUploadedImages = preparedLocal;
       try {
-        withUploadedImages = await uploadNewImages(local);
+        withUploadedImages = await uploadNewImages(preparedLocal);
       } catch (uploadErr) {
         console.error('Image upload failed', uploadErr);
         Alert.alert('Upload failed', String(uploadErr?.message ?? uploadErr));
@@ -650,8 +978,14 @@ export default function CardInfo(props) {
         return;
       }
 
-      const original = data ?? {};
+      const original = {
+        ...(data ?? {}),
+        customer_contacts: cleanCustomerContacts(parseCustomerContacts(data?.customer_contacts)),
+      };
 
+      /**
+       * Fields that should never be included in outgoing PATCH updates.
+       */
       const protectedCols = new Set([
         'id',
         'user_id',
@@ -671,6 +1005,10 @@ export default function CardInfo(props) {
         'users_json',
       ]);
 
+      /**
+       * Normalizes values so comparisons are more reliable.
+       * Prevents false positives when checking whether fields changed.
+       */
       const normalize = (v) => {
         if (v instanceof Date) return v.toISOString();
         if (v === null || typeof v === 'undefined') return null;
@@ -693,6 +1031,10 @@ export default function CardInfo(props) {
         }
       };
 
+      /**
+       * Build update payload by comparing edited values to original values.
+       * Only changed fields are included.
+       */
       const updates = {};
       for (const k of Object.keys(withUploadedImages)) {
         if (protectedCols.has(k)) continue;
@@ -711,11 +1053,7 @@ export default function CardInfo(props) {
 
         if (!changed) continue;
 
-        if (k === 'users_json' && typeof newVal !== 'string') {
-          updates[k] = JSON.stringify(newVal);
-        } else {
-          updates[k] = newVal instanceof Date ? newVal.toISOString() : newVal;
-        }
+        updates[k] = newVal instanceof Date ? newVal.toISOString() : newVal;
       }
 
       if (Object.keys(updates).length === 0) {
@@ -726,6 +1064,11 @@ export default function CardInfo(props) {
         return;
       }
 
+      /**
+       * Split changed fields into:
+       * - visitUpdates -> goes to visit header endpoint
+       * - detailUpdates -> goes to sales/service/activity detail endpoint
+       */
       const visitUpdates = {};
       const detailUpdates = {};
 
@@ -737,6 +1080,9 @@ export default function CardInfo(props) {
         }
       }
 
+      /**
+       * Read current user_id from local storage for API calls.
+       */
       let userId = '1';
       try {
         const stored = await AsyncStorage.getItem('user_id');
@@ -748,12 +1094,18 @@ export default function CardInfo(props) {
       const host = apiHost;
       const token = await AsyncStorage.getItem('token');
 
+      /**
+       * Determine the visit id to use in PATCH endpoints.
+       */
       const visitId = withUploadedImages.visit_id || withUploadedImages.id;
 
       if (!visitId) {
         throw new Error('Missing visit id.');
       }
 
+      /**
+       * Determine which detail endpoint to hit based on form type.
+       */
       let detailType = null;
 
       if (
@@ -770,6 +1122,9 @@ export default function CardInfo(props) {
         detailType = 'sales';
       }
 
+      /**
+       * PATCH visit header fields first if there are any.
+       */
       if (Object.keys(visitUpdates).length > 0) {
         const visitUrl = `${host}/api/visits/${encodeURIComponent(
           visitId
@@ -787,9 +1142,7 @@ export default function CardInfo(props) {
         let visitJson = null;
         try {
           visitJson = await visitResp.json();
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
 
         if (!visitResp.ok) {
           throw new Error(
@@ -798,6 +1151,9 @@ export default function CardInfo(props) {
         }
       }
 
+      /**
+       * PATCH detail fields next if there are any.
+       */
       if (Object.keys(detailUpdates).length > 0) {
         const detailUrl = `${host}/api/visits/${encodeURIComponent(
           visitId
@@ -815,9 +1171,7 @@ export default function CardInfo(props) {
         let detailJson = null;
         try {
           detailJson = await detailResp.json();
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
 
         if (!detailResp.ok) {
           throw new Error(
@@ -826,7 +1180,11 @@ export default function CardInfo(props) {
         }
       }
 
+      /**
+       * Refresh local state after a successful save.
+       */
       setLocal(withUploadedImages);
+      setCustomerContacts(parseCustomerContacts(withUploadedImages.customer_contacts));
       await resolveExistingImages(withUploadedImages);
       await safeOnSave(withUploadedImages);
       Alert.alert('Success', 'Form updated successfully.');
@@ -842,6 +1200,10 @@ export default function CardInfo(props) {
    * Export to PDF
    * ------------------------- */
 
+  /**
+   * Builds printable HTML used to export the form into a PDF.
+   * Includes special formatting for users_json and customer_contacts.
+   */
   const buildHtmlForPdf = (obj) => {
     const rows = Object.keys(obj)
       .map((k) => {
@@ -856,14 +1218,22 @@ export default function CardInfo(props) {
 
             if (Array.isArray(users) && users.length > 0) {
               displayValue = users
-                .map(
-                  (u, i) =>
-                    `${i + 1}. ${u.nama || '-'} (${u.jabatan || '-'})`
-                )
+                .map((u, i) => `${i + 1}. ${u.nama || '-'} (${u.jabatan || '-'})`)
                 .join('<br/>');
             } else {
               displayValue = '-';
             }
+          } catch (e) {
+            displayValue = '-';
+          }
+        } else if (k === 'customer_contacts') {
+          try {
+            const contacts = parseCustomerContacts(obj[k]);
+            displayValue = contacts.length
+              ? contacts
+                  .map((u, i) => `${i + 1}. ${u.nama || '-'} (${u.jabatan || '-'})`)
+                  .join('<br/>')
+              : '-';
           } catch (e) {
             displayValue = '-';
           }
@@ -909,11 +1279,18 @@ export default function CardInfo(props) {
     `;
   };
 
+  /**
+   * Exports the current form data as a PDF and opens the share sheet.
+   */
   const handleDownload = async () => {
     try {
       if (!local) return Alert.alert('Nothing to export');
 
-      const html = buildHtmlForPdf(local);
+      const html = buildHtmlForPdf({
+        ...local,
+        customer_contacts: cleanCustomerContacts(customerContacts),
+      });
+
       const { uri: pdfUri } = await Print.printToFileAsync({ html });
 
       if (!pdfUri) throw new Error('Failed to generate PDF');
@@ -934,6 +1311,9 @@ export default function CardInfo(props) {
    * Render
    * ------------------------- */
 
+  /**
+   * Empty state when there is no local record to display.
+   */
   if (!local) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
@@ -951,6 +1331,13 @@ export default function CardInfo(props) {
     );
   }
 
+  /**
+   * Main screen render:
+   * - header
+   * - optional read-only banner
+   * - dynamic fields
+   * - action buttons
+   */
   return (
     <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
       <LinearGradient
@@ -977,6 +1364,12 @@ export default function CardInfo(props) {
             <Text style={styles.headerType}>{local.form_type}</Text>
           </View>
 
+          {!canEdit && (
+            <View style={styles.readOnlyBanner}>
+              <Text style={styles.readOnlyBannerText}>Read only</Text>
+            </View>
+          )}
+
           {local.users_json &&
             renderUsersField(
               typeof local.users_json === 'string'
@@ -991,9 +1384,15 @@ export default function CardInfo(props) {
               <Text style={styles.downloadText}>Download</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save</Text>}
-            </TouchableOpacity>
+            {canEdit && (
+              <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.saveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity onPress={safeOnCancel} style={styles.cancelBtn} disabled={saving}>
               <Text style={styles.cancelText}>Cancel</Text>
@@ -1008,10 +1407,8 @@ export default function CardInfo(props) {
 /* -------------------------
  * Styles
  * ------------------------- */
-
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff' },
-
+  safeArea: {flex: 1, backgroundColor: '#fff'},
   topSection: {
     justifyContent: 'flex-end',
     paddingHorizontal: 24,
@@ -1023,7 +1420,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 40,
   },
-
   bottomSection: {
     flex: 1,
     backgroundColor: 'white',
@@ -1035,27 +1431,36 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-
   formContainer: {
     paddingHorizontal: 24,
     paddingTop: 18,
     paddingBottom: 40,
   },
-
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
     alignItems: 'center',
   },
-  headerId: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-  headerType: { fontSize: 12, color: '#6B7280', textTransform: 'lowercase' },
-
-  row: { marginBottom: 18 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  label: { fontSize: 14, fontWeight: '600', color: '#1E40AF' },
-  required: { color: '#D92D20', marginLeft: 6, fontWeight: '700' },
-
+  headerId: {fontSize: 14, fontWeight: '700', color: '#0F172A'},
+  headerType: {fontSize: 12, color: '#6B7280', textTransform: 'lowercase'},
+  readOnlyBanner: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  readOnlyBannerText: {
+    color: '#92400E',
+    fontWeight: '700',
+  },
+  row: {marginBottom: 18},
+  labelRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 8},
+  label: {fontSize: 14, fontWeight: '600', color: '#1E40AF', marginBottom: 8},
+  required: {color: '#D92D20', marginLeft: 6, fontWeight: '700'},
   formInput: {
     borderBottomWidth: 1,
     borderBottomColor: '#CBD5E1',
@@ -1063,9 +1468,11 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontSize: 15,
   },
-
-  inputText: { color: '#111827', fontSize: 15 },
-
+  disabledInput: {
+    color: '#6B7280',
+    backgroundColor: '#F8FAFC',
+  },
+  inputText: {color: '#111827', fontSize: 15},
   readOnlyBox: {
     borderRadius: 12,
     backgroundColor: '#FBFBFC',
@@ -1083,10 +1490,9 @@ const styles = StyleSheet.create({
   readOnlyText: {
     color: '#374151',
     fontSize: 15,
-    lineHeight: 20,
+    lineHeight: 22,
     fontWeight: '600',
   },
-
   imageFieldBoxOld: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -1094,9 +1500,6 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: '#FFFFFF',
   },
-
-  imageRow: { flexDirection: 'row', alignItems: 'center' },
-
   smallBtn: {
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -1105,19 +1508,47 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   smallBtnText: { fontSize: 13, color: '#374151' },
-
-  removeBtn: {
-    marginLeft: 12,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  contactCard: {
+    backgroundColor: '#FBFBFC',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#EDEFF2',
+    borderColor: '#E5E7EB',
   },
-  removeBtnText: { color: '#111827', fontWeight: '700' },
-
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 22 },
+  contactTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  addContactBtn: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addContactText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
+  removeContactBtn: {
+    marginTop: 10,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  removeContactText: {
+    color: '#B91C1C',
+    fontWeight: '700',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 22,
+  },
   downloadBtn: {
     flex: 1,
     backgroundColor: '#3B82F6',
@@ -1129,7 +1560,6 @@ const styles = StyleSheet.create({
     borderColor: '#EDEFF2',
   },
   downloadText: { color: 'white', fontWeight: '700' },
-
   saveBtn: {
     flex: 1,
     paddingVertical: 12,
@@ -1140,7 +1570,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveText: { color: '#fff', fontWeight: '700' },
-
   cancelBtn: {
     flex: 1,
     backgroundColor: 'red',

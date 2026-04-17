@@ -16,7 +16,9 @@ import Header from '../components/Header';
 import TaskCard from '../components/TaskCard';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from '@env';
+import API_BASE from '../config/api';
+
+// import { API_URL } from '@env';
 
 /* ------------------------------------------------------------------
  * Layout constants
@@ -24,29 +26,78 @@ import { API_URL } from '@env';
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = width * 0.42;
 
-/**
- * Color mapping for different form types.
- */
 const FORM_TYPE_COLORS = {
   technician_service: '#22C55E',
   technician_activity: '#3B82F6',
-  'sales': '#7C3AED',
-  faskes: '#FCA5A5',
+
+  sales_healthcare: '#FCA5A5',
+  sales_non_healthcare: '#7C3AED',
 };
 
-const getIconName = (formType) => {
-  switch (formType) {
-    case 'technician_service':
-      return 'tools';
-    case 'technician_activity':
-      return 'chalkboard-teacher';
-    case 'sales':
-      return 'briefcase';
-    case 'faskes':
-      return 'hospital';
-    default:
-      return 'file-alt';
+/**
+ * Determines card color based on visit_type + sales_category
+ */
+const getFormColor = (item) => {
+  // console.log('in form_color')
+  if (item.visit_type === 'technician_service') {
+    return FORM_TYPE_COLORS.technician_service;
   }
+
+  if (item.visit_type === 'technician_activity') {
+    return FORM_TYPE_COLORS.technician_activity;
+  }
+
+  if (item.visit_type === 'sales') {
+    // console.log(item)
+    
+    return item.sales_category === 'healthcare'
+      ? FORM_TYPE_COLORS.sales_healthcare
+      : FORM_TYPE_COLORS.sales_non_healthcare;
+  }
+
+  return '#6B7280';
+};
+
+/**
+ * Determines icon based on visit_type + sales_category
+ */
+const getIconName = (item) => {
+  if (item.visit_type === 'technician_service') {
+    return 'tools';
+  }
+
+  if (item.visit_type === 'technician_activity') {
+    return 'chalkboard-teacher';
+  }
+
+  if (item.visit_type === 'sales') {
+    return item.sales_category === 'healthcare'
+      ? 'hospital'
+      : 'briefcase';
+  }
+
+  return 'file-alt';
+};
+
+/**
+ * Determines card title based on visit_type + sales_category
+ */
+const getCardTitle = (item) => {
+  if (item.visit_type === 'technician_service') {
+    return 'Technician Service';
+  }
+
+  if (item.visit_type === 'technician_activity') {
+    return 'Technician Activity';
+  }
+
+  if (item.visit_type === 'sales') {
+    return item.sales_category === 'healthcare'
+      ? 'Sales Visit Customer'
+      : 'Sales Visit Non Faskes';
+  }
+
+  return 'Form';
 };
 
 const formatAnyDate = (d) => {
@@ -61,21 +112,6 @@ const formatAnyDate = (d) => {
   const p = Date.parse(s);
   if (!Number.isNaN(p)) return new Date(p).toISOString().slice(0, 10);
   return null;
-};
-
-const getCardTitle = (formType) => {
-  switch (formType) {
-    case 'technician_service':
-      return 'Technician Service';
-    case 'technician_activity':
-      return 'Technician Activity';
-    case 'sales':
-      return 'Sales Visit Non Faskes';
-    case 'faskes':
-      return 'Sales Visit Customer';
-    default:
-      return 'Form';
-  }
 };
 
 /** -------------------------------------------------------------
@@ -164,8 +200,9 @@ export default function MenuTabs({ navigation }) {
   }, [filters, formList]);
 
   const getAllForms = async (userId) => {
-    const hardCode = 'http://192.168.1.93:3000';
+    const hardCode = API_BASE;
     const url = `${hardCode}/api/visits/`;
+
 
     const token = await AsyncStorage.getItem('token');
 
@@ -184,9 +221,9 @@ export default function MenuTabs({ navigation }) {
   };
 
 
-  const editClick = async (editData) => {
+  const editClick = async (editData, canEdit = false) => {
     try {
-      const baseUrl = 'http://192.168.1.93:3000';
+      const baseUrl = API_BASE;
       const token = await AsyncStorage.getItem('token');
       
       const endpointMap = {
@@ -214,7 +251,7 @@ export default function MenuTabs({ navigation }) {
         ...response.data,
       };
 
-      navigation.navigate('CardInfo', { data: mergedData });
+      navigation.navigate('CardInfo', { data: mergedData, canEdit });
 
     } catch (error) {
       console.error('editClick error:', error?.response?.data || error.message);
@@ -225,7 +262,7 @@ export default function MenuTabs({ navigation }) {
     try {
       console.log('in delete');
       const token = await AsyncStorage.getItem("token");
-      const baseUrl = 'http://192.168.1.93:3000';
+      const baseUrl = API_BASE;
 
       console.log('visitID:', visit.id);
 
@@ -374,13 +411,13 @@ export default function MenuTabs({ navigation }) {
           {draftItems.map(item => (
             <View key={`${item.visit_type}-${item.id}`} style={{ marginVertical: 8 }}>
               <TaskCard
-                title={getCardTitle(item.visit_type)}
-                iconName={getIconName(item.visit_type)}
+                title={getCardTitle(item)}
+                iconName={getIconName(item)}
                 date={
                   formatAnyDate(item.visited_at) 
                 }
-                formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
-                onEdit={() => editClick(item)}
+                formTypeColor={getFormColor(item)}
+                onEdit={() => editClick(item, true)}
                 onDelete={() => handleDeleteVisit(item)}
               />
             </View>
@@ -407,11 +444,11 @@ export default function MenuTabs({ navigation }) {
             return (
               <View key={`${item.visit_type}-${item.id}`} style={{ marginVertical: 8 }}>
                 <TaskCard
-                  title={getCardTitle(item.visit_type)}
-                  iconName={getIconName(item.visit_type)}
+                  title={getCardTitle(item)}
+                  iconName={getIconName(item)}
                   date={formatAnyDate(item.visited_at)}
-                  formTypeColor={FORM_TYPE_COLORS[item.visit_type]}
-                  onEdit={() => editClick(item)}
+                  formTypeColor={getFormColor(item)}
+                  onEdit={() => editClick(item, false)}
                   onDelete={() => handleDeleteVisit(item)}
                 />
               </View>
@@ -438,8 +475,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     elevation: 6,
   },
-  largeCard: { height: 200 },
-  smallCard: { height: 130 },
+ largeCard: {
+  width: '100%',
+  minHeight: 180,
+  aspectRatio: 0.8,
+  },
+  smallCard: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+  },
   cardTitle: { fontSize: 18, fontWeight: '600', color: '#fff', marginTop: 12 },
   header2: { fontSize: 20, fontWeight: 'bold', marginTop: 25 },
 });
