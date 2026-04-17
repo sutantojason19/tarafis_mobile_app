@@ -29,11 +29,6 @@ export default function InputBox({
     <View style={styles.container}>
       <Text style={styles.label}>
         {title} <Text style={styles.required}>*</Text>
-           {isRequired === true && (
-            <Text style={{ color: '#6B7280', marginTop: 4 }}>
-              Produk baru — silakan lengkapi detail produk
-            </Text>
-           )}
       </Text>
       <TextInput
         style={styles.input}

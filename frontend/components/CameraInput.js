@@ -20,7 +20,6 @@
  *   or adapt the permission logic accordingly.
  * - The normalization is best-effort: we try to derive a filename/type from the URI.
  */
-
 import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
